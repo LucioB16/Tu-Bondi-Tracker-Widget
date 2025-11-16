@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">TuBondi Widget</string>
+    <string name="config_title">Configurar widget TuBondi</string>
+    <string name="config_subtitle">Elige paradas, líneas y avisos</string>
+    <string name="label_frequency">Frecuencia (minutos)</string>
+    <string name="label_notifications">Notificaciones</string>
+    <string name="label_threshold">Umbral (min)</string>
+    <string name="action_save">Guardar</string>
+    <string name="action_refresh">Actualizar</string>
+    <string name="empty_state">Sin datos todavía</string>
+    <string name="error_loading">Hubo un problema al cargar</string>
+    <string name="widget_header">Próximos arribos TuBondi</string>
+</resources>
+    <string name="notification_channel_name">Alertas de arribos</string>
+    <string name="notification_body_template">Línea %1$s llega en %2$d min a %3$s</string>
+    <string name="notification_silence_action">Silenciar 1 h</string>
+    <string name="config_instructions">Selecciona paradas y líneas para monitorear.</string>
+    <string name="label_high_contrast">Alto contraste</string>
+    <string name="label_conf">Conf</string>

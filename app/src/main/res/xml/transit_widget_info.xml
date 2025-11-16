@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@drawable/ic_widget_placeholder"
+    android:configure="com.tubondi.widget.ui.config.ConfigActivity"
+    android:previewImage="@drawable/ic_widget_placeholder"
+    android:resizeMode="vertical|horizontal"
+    android:widgetCategory="home_screen"
+    android:initialKeyguardLayout="@drawable/ic_widget_placeholder" />
