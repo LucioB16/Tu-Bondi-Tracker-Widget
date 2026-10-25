@@ -13,10 +13,13 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
+import java.time.Clock
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 class TransitRepositoryTest {
     private val client = mockk<TuBondiHttpClient>()
-    private val repository = TransitRepository(client)
+    private val repository = TransitRepository(client, Clock.systemUTC())
 
     @Test
     fun filtersArrivalsBySelectedLines() = runTest {
@@ -49,5 +52,38 @@ class TransitRepositoryTest {
         assertThat(filtered.first().etaText).isEqualTo("4min")
         assertThat(filtered.first().stopCode).isEqualTo("0001")
         assertThat(filtered.first().notification).isNull()
+    }
+
+    @Test
+    fun cycleBudgetSkipsRemainingStops() = runTest {
+        // Reloj simulado: tras la primera consulta salta 31s (> budget de 30s).
+        var advanced = false
+        val fakeClock = object : Clock() {
+            override fun millis(): Long = if (advanced) 31_000L else 0L
+            override fun getZone(): ZoneId = ZoneOffset.UTC
+            override fun withZone(zone: ZoneId?): Clock = this
+            override fun instant(): java.time.Instant = java.time.Instant.ofEpochMilli(millis())
+        }
+        val repo = TransitRepository(client, fakeClock)
+        val config = WidgetConfiguration(
+            appWidgetId = 7,
+            selections = listOf(
+                StopSelection(Stop("0001", "A"), emptyList()),
+                StopSelection(Stop("0002", "B"), emptyList())
+            ),
+            refreshIntervalMinutes = 5,
+            notificationsEnabled = false
+        )
+        coEvery { client.getArrivals("0001", any(), any(), any()) } answers {
+            advanced = true
+            ArrivalsResponseDto()
+        }
+
+        val result = repo.fetchArrivalsForConfig(config)
+
+        // La parada 0002 queda fuera del presupuesto (quedará con su dato
+        // anterior: el worker retiene el último estado válido, SA-8).
+        assertThat(result).hasSize(1)
+        assertThat(result.first().stop.code).isEqualTo("0001")
     }
 }

@@ -21,4 +21,10 @@ class TransitGlanceReceiver : GlanceAppWidgetReceiver() {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
         RefreshWorker.enqueueAll(context)
     }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        // SA-9: cancelar work periódico y purgar la config del widget eliminado.
+        RefreshWorker.cleanup(context, appWidgetIds)
+    }
 }

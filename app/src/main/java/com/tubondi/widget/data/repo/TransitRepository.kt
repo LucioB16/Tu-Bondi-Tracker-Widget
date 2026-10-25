@@ -15,6 +15,7 @@ import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.domain.model.StopSelection
 import com.tubondi.widget.domain.model.WidgetConfiguration
+import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,7 +26,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class TransitRepository @Inject constructor(
-    private val client: TuBondiHttpClient
+    private val client: TuBondiHttpClient,
+    private val clock: Clock
 ) {
 
     suspend fun fetchLines(conf: String): List<Line> {
@@ -42,7 +44,12 @@ class TransitRepository @Inject constructor(
 
     suspend fun fetchArrivalsForConfig(config: WidgetConfiguration): List<StopArrivals> {
         val results = mutableListOf<StopArrivals>()
+        // Presupuesto de ciclo (paridad Oma: todas las paradas dentro de ~30s).
+        // Chequeo cooperativo antes de cada parada: lo que no llega queda con
+        // el dato anterior (el worker retiene el último estado válido).
+        val deadline = clock.millis() + CYCLE_BUDGET_MS
         for (selection in config.selections) {
+            if (clock.millis() >= deadline) break
             val response = client.getArrivals(selection.stop.code, config.conf)
             val arrivals = filterArrivals(response, selection)
             val stop = response.parada?.toDomainStop() ?: selection.stop
@@ -100,5 +107,10 @@ class TransitRepository @Inject constructor(
             color = color,
             notification = notificacion
         )
+    }
+
+    companion object {
+        /** Presupuesto de ciclo (paridad Oma: todas las paradas en ~30s). */
+        const val CYCLE_BUDGET_MS = 30_000L
     }
 }

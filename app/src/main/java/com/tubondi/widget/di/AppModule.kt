@@ -14,9 +14,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import java.time.Clock
 import javax.inject.Singleton
 
-private val Context.dataStore by preferencesDataStore(name = "widget_prefs")
+internal val Context.dataStore by preferencesDataStore(name = "widget_prefs")
 
 /**
  * Módulo de dependencias generales.
@@ -31,7 +32,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideRepository(client: TuBondiHttpClient): TransitRepository = TransitRepository(client)
+    fun provideRepository(client: TuBondiHttpClient, clock: Clock): TransitRepository =
+        TransitRepository(client, clock)
 
     @Provides
     @Singleton
@@ -39,4 +41,8 @@ object AppModule {
 
     @Provides
     fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
+
+    @Provides
+    @Singleton
+    fun provideClock(): Clock = Clock.systemUTC()
 }
