@@ -47,7 +47,7 @@ class ConfigViewModel @Inject constructor(
                             line.rutas.map { route ->
                                 RouteUiModel(
                                     lineName = line.name,
-                                    routeName = route.name,
+                                    routeName = route.name.orEmpty(),
                                     routeId = route.routeId.toIntOrNull() ?: route.routeId.hashCode(),
                                     clientId = line.cliente ?: 0,
                                     color = line.color
@@ -94,7 +94,7 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
-    fun toggleLine(stopCode: String, lineId: Int, enabled: Boolean) {
+    fun toggleLine(stopCode: String, lineId: String, enabled: Boolean) {
         _state.update { st ->
             st.copy(
                 selectedStops = st.selectedStops.map {
@@ -191,5 +191,5 @@ data class RouteUiModel(
 data class StopUiModel(
     val stop: Stop,
     val isSelected: Boolean = false,
-    val selectedLines: Set<Int> = stop.lines.map { it.id }.toSet()
+    val selectedLines: Set<String> = stop.lines.map { it.id }.toSet()
 )

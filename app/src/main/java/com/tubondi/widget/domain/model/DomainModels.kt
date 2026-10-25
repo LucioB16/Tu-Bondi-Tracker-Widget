@@ -3,11 +3,11 @@ package com.tubondi.widget.domain.model
 import kotlinx.serialization.Serializable
 
 /**
- * Modelo de línea simplificado.
+ * Modelo de línea simplificado. id = line_id REAL de la API (string: "42", "C1").
  */
 @Serializable
 data class Line(
-    val id: Int,
+    val id: String,
     val name: String,
     val color: String? = null,
     val operator: String? = null
@@ -38,26 +38,34 @@ data class Route(
 
 /**
  * Arribo normalizado para mostrar en el widget.
+ * etaMinutes deriva de etaText vía EtaParser (null = sin dato);
+ * etaText es el texto crudo del backend ("11min", "arribando", "227min").
+ * notification = alerta del backend por arribo (cortes/anulaciones/redirecciones).
  */
 @Serializable
 data class Arrival(
-    val stopCode: String,
-    val lineName: String,
-    val etaMinutes: Int,
-    val distanceMeters: Int?,
+    val stopCode: String = "",
+    val lineId: String = "",
+    val lineName: String = "",
+    val etaMinutes: Int? = null,
+    val etaText: String = "",
+    val distanceKm: Double? = null,
     val direction: String? = null,
+    val routeDescription: String? = null,
     val vehicleId: String? = null,
     val operator: String? = null,
-    val color: String? = null
+    val color: String? = null,
+    val notification: String? = null
 )
 
 /**
  * Configuración de selección por parada.
+ * selectedLines usa los line_id REALES de la API (strings); vacío = todas.
  */
 @Serializable
 data class StopSelection(
     val stop: Stop,
-    val selectedLines: List<Int>
+    val selectedLines: List<String> = emptyList()
 )
 
 /**

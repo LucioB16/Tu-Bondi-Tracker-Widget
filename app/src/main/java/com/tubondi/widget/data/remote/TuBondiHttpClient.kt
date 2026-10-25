@@ -29,6 +29,7 @@ class TuBondiHttpClient(
     private val json: Json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
+        isLenient = true
     },
     okHttpClient: OkHttpClient? = null
 ) {

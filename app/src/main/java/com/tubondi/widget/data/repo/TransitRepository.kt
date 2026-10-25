@@ -4,9 +4,11 @@ import com.tubondi.widget.data.remote.TuBondiHttpClient
 import com.tubondi.widget.data.remote.dto.ArrivalDto
 import com.tubondi.widget.data.remote.dto.ArrivalsResponseDto
 import com.tubondi.widget.data.remote.dto.LineDto
+import com.tubondi.widget.data.remote.dto.LinesRoutesResponseDto
 import com.tubondi.widget.data.remote.dto.RouteSelectionResponseDto
 import com.tubondi.widget.data.remote.dto.StopDto
 import com.tubondi.widget.data.remote.dto.StopLineDto
+import com.tubondi.widget.domain.EtaParser
 import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.Line
 import com.tubondi.widget.domain.model.Stop
@@ -18,6 +20,8 @@ import javax.inject.Singleton
 
 /**
  * Fuente de datos que combina respuestas de red con reglas de dominio.
+ * El filtrado de líneas usa el line_id REAL del arribo (campo `linea`);
+ * vacío = todas las líneas.
  */
 @Singleton
 class TransitRepository @Inject constructor(
@@ -54,19 +58,19 @@ class TransitRepository @Inject constructor(
     private fun filterArrivals(response: ArrivalsResponseDto, selection: StopSelection): List<Arrival> {
         val allowed = selection.selectedLines.toSet()
         return response.arrivals
-            .filter { allowed.isEmpty() || allowed.contains(it.lineIdGuess()) }
-            .map { it.toDomain() }
+            .filter { allowed.isEmpty() || it.lineId in allowed }
+            .map { it.toDomain(selection.stop.code) }
     }
 
     private fun LineDto.toDomainLine(): Line = Line(
-        id = id.toIntOrNull() ?: id.hashCode(),
+        id = id,
         name = name,
         color = color,
         operator = null
     )
 
     private fun StopLineDto.toDomainLine(): Line = Line(
-        id = lineId.toIntOrNull() ?: lineId.hashCode(),
+        id = lineId,
         name = name,
         color = color,
         operator = operador
@@ -74,22 +78,27 @@ class TransitRepository @Inject constructor(
 
     private fun StopDto.toDomainStop(): Stop = Stop(
         code = codigo,
-        name = descripcion,
+        name = descripcion.ifBlank { paradaNombre },
         latitude = lat,
         longitude = lon,
         lines = lineas.map { it.toDomainLine() }
     )
 
-    private fun ArrivalDto.lineIdGuess(): Int = lineName.filter { it.isDigit() }.toIntOrNull() ?: lineName.hashCode()
-
-    private fun ArrivalDto.toDomain(): Arrival = Arrival(
-        stopCode = stopCode,
-        lineName = lineName,
-        etaMinutes = etaMinutes,
-        distanceMeters = distanceMeters,
-        direction = direction,
-        vehicleId = vehicleId,
-        operator = operator,
-        color = color
-    )
+    private fun ArrivalDto.toDomain(stopCode: String): Arrival {
+        val etaText = EtaParser.etaText(demora, proximo).orEmpty()
+        return Arrival(
+            stopCode = stopCode,
+            lineId = lineId.orEmpty(),
+            lineName = lineName,
+            etaText = etaText,
+            etaMinutes = EtaParser.parse(etaText),
+            distanceKm = distancia,
+            direction = sentido,
+            routeDescription = routeDescription,
+            vehicleId = coche,
+            operator = operator,
+            color = color,
+            notification = notificacion
+        )
+    }
 }

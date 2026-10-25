@@ -106,7 +106,7 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent) {
                                 modifier = GlanceModifier.defaultWeight()
                             )
                             Text(
-                                text = "${arrival.etaMinutes} min",
+                                text = arrival.etaText.ifBlank { "—" },
                                 style = TextStyle(color = ColorProvider(Color(0xFFE0E0E0L), Color(0xFFE0E0E0L)))
                             )
                         }

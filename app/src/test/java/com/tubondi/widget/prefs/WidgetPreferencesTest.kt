@@ -25,7 +25,7 @@ class WidgetPreferencesTest {
     fun setUp() {
         val dispatcher = UnconfinedTestDispatcher()
         val testScope = TestScope(dispatcher)
-        val file = File.createTempFile("prefs", ".preferences-test")
+        val file = File.createTempFile("prefs", ".preferences_pb")
         dataStore = PreferenceDataStoreFactory.create(scope = testScope) {
             file
         }
@@ -38,8 +38,8 @@ class WidgetPreferencesTest {
             appWidgetId = 42,
             selections = listOf(
                 StopSelection(
-                    stop = Stop(code = "10", name = "Test", lines = listOf(Line(1, "1"))),
-                    selectedLines = listOf(1)
+                    stop = Stop(code = "10", name = "Test", lines = listOf(Line("1", "1"))),
+                    selectedLines = listOf("1")
                 )
             ),
             refreshIntervalMinutes = 15,

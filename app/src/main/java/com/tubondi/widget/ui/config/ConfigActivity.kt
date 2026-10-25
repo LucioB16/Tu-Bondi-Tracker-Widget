@@ -33,7 +33,7 @@ import androidx.core.view.WindowCompat
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
- * Pantalla principal de configuración del widget.
+ * Pantalla principal de configuraciÃ³n del widget.
  */
 @AndroidEntryPoint
 class ConfigActivity : ComponentActivity() {
@@ -85,7 +85,7 @@ fun ConfigScreen(
     state: ConfigUiState,
     onRouteSelected: (RouteUiModel) -> Unit,
     onStopToggled: (String, Boolean) -> Unit,
-    onLineToggled: (String, Int, Boolean) -> Unit,
+    onLineToggled: (String, String, Boolean) -> Unit,
     onRefreshChanged: (Int) -> Unit,
     onNotificationsChanged: (Boolean) -> Unit,
     onThresholdChanged: (Int) -> Unit,
@@ -130,7 +130,7 @@ private fun RouteCard(route: RouteUiModel, onClick: () -> Unit) {
     Column(modifier = Modifier
         .fillMaxWidth()
         .padding(vertical = 4.dp)) {
-        Text(text = "${route.lineName} • ${route.routeName}", fontWeight = FontWeight.Medium)
+        Text(text = "${route.lineName} â€¢ ${route.routeName}", fontWeight = FontWeight.Medium)
         Button(onClick = onClick, modifier = Modifier.padding(top = 4.dp)) {
             Text(text = "Agregar paradas")
         }
@@ -141,7 +141,7 @@ private fun RouteCard(route: RouteUiModel, onClick: () -> Unit) {
 fun StopPickerScreen(
     stops: List<StopUiModel>,
     onStopToggled: (String, Boolean) -> Unit,
-    onLineToggled: (String, Int, Boolean) -> Unit
+    onLineToggled: (String, String, Boolean) -> Unit
 ) {
     Column {
         Text(text = "Paradas seleccionadas", fontWeight = FontWeight.Bold)
@@ -161,7 +161,7 @@ fun StopPickerScreen(
 }
 
 @Composable
-fun LinePickerScreen(stopUi: StopUiModel, onLineToggled: (String, Int, Boolean) -> Unit) {
+fun LinePickerScreen(stopUi: StopUiModel, onLineToggled: (String, String, Boolean) -> Unit) {
     Column(modifier = Modifier.padding(start = 16.dp)) {
         stopUi.stop.lines.forEach { line ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -23,18 +23,19 @@ class TransitRepositoryTest {
         val stop = Stop(
             code = "0001",
             name = "Colón y General Paz",
-            lines = listOf(Line(10, "10"), Line(20, "20"))
+            lines = listOf(Line("10", "10"), Line("20", "20"))
         )
         val config = WidgetConfiguration(
             appWidgetId = 7,
-            selections = listOf(StopSelection(stop, selectedLines = listOf(10))),
+            selections = listOf(StopSelection(stop, selectedLines = listOf("10"))),
             refreshIntervalMinutes = 5,
             notificationsEnabled = false
         )
+        // Contrato real: eta por demora/proximo, sin codigo_parada por arribo.
         coEvery { client.getArrivals("0001", any(), any(), any()) } returns ArrivalsResponseDto(
             arrivals = listOf(
-                ArrivalDto(lineName = "10", stopCode = "0001", etaMinutes = 4, distanceMeters = 300, operator = null, color = null, direction = null, vehicleId = "101"),
-                ArrivalDto(lineName = "20", stopCode = "0001", etaMinutes = 2, distanceMeters = 200, operator = null, color = null, direction = null, vehicleId = "102")
+                ArrivalDto(lineId = "10", lineName = "10", demora = "4min", distancia = 300.0, coche = "101"),
+                ArrivalDto(lineId = "20", lineName = "20", proximo = "2min", distancia = 200.0, coche = "102")
             ),
             parada = StopDto(codigo = "0001", descripcion = "Colón y General Paz", lineas = emptyList())
         )
@@ -42,6 +43,11 @@ class TransitRepositoryTest {
         val result = repository.fetchArrivalsForConfig(config)
 
         assertThat(result).hasSize(1)
-        assertThat(result.first().arrivals.map { it.lineName }).containsExactly("10")
+        val filtered = result.first().arrivals
+        assertThat(filtered.map { it.lineName }).containsExactly("10")
+        assertThat(filtered.first().etaMinutes).isEqualTo(4)
+        assertThat(filtered.first().etaText).isEqualTo("4min")
+        assertThat(filtered.first().stopCode).isEqualTo("0001")
+        assertThat(filtered.first().notification).isNull()
     }
 }

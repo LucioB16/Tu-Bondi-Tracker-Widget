@@ -51,6 +51,13 @@ android {
         kotlinCompilerExtensionVersion = "1.5.11"
     }
 
+    testOptions {
+        unitTests {
+            // Robolectric necesita recursos Android embebidos en los tests unitarios.
+            isIncludeAndroidResources = true
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -101,7 +108,7 @@ dependencies {
     testImplementation("com.google.truth:truth:1.4.2")
     testImplementation("io.mockk:mockk:1.13.10")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.test:core:1.5.0")
 
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

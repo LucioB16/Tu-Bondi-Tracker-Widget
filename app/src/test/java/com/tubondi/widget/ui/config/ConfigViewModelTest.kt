@@ -17,7 +17,10 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class ConfigViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
@@ -43,16 +46,16 @@ class ConfigViewModelTest {
         advanceUntilIdle()
         val route = viewModel.state.value.availableRoutes.first()
         coEvery { repository.fetchStopsForRoute(route.routeId, route.clientId, any()) } returns listOf(
-            Stop(code = "100", name = "San Juan", lines = listOf(Line(1, "1"), Line(2, "2")))
+            Stop(code = "100", name = "San Juan", lines = listOf(Line("1", "1"), Line("2", "2")))
         )
 
         viewModel.selectRoute(route)
         advanceUntilIdle()
         viewModel.toggleStop("100", true)
-        viewModel.toggleLine("100", 2, false)
+        viewModel.toggleLine("100", "2", false)
 
         val stopUi = viewModel.state.value.selectedStops.first { it.stop.code == "100" }
         assertThat(stopUi.isSelected).isTrue()
-        assertThat(stopUi.selectedLines).containsExactly(1)
+        assertThat(stopUi.selectedLines).containsExactly("1")
     }
 }

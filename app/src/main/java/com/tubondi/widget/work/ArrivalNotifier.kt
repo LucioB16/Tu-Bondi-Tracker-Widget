@@ -38,7 +38,7 @@ class ArrivalNotifier @Inject constructor(
         val manager = NotificationManagerCompat.from(context)
         arrivals.forEach { stopArrivals ->
             stopArrivals.arrivals
-                .filter { it.etaMinutes <= threshold }
+                .filter { (it.etaMinutes ?: Int.MAX_VALUE) <= threshold }
                 .forEach { arrival ->
                     val key = "${config.appWidgetId}-${arrival.stopCode}-${arrival.lineName}"
                     val lastTime = recents[key] ?: 0L
