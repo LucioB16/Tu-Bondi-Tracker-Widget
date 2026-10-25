@@ -91,3 +91,15 @@ data class StopArrivals(
     val arrivals: List<Arrival>,
     val backendMessage: String? = null
 )
+
+/**
+ * Avisos agregados para la pantalla/página de avisos (paridad Oma):
+ * backendMessage por parada + notificacion por arribo, limpiados de
+ * entidades HTML y sin duplicados.
+ */
+fun List<StopArrivals>.collectAvisos(): List<String> =
+    flatMap { stop ->
+        listOfNotNull(stop.backendMessage?.takeIf { it.isNotBlank() }) +
+            stop.arrivals.mapNotNull { it.notification?.takeIf { n -> n.isNotBlank() } }
+    }.map { com.tubondi.widget.domain.HtmlText.stripEntities(it) }
+        .distinct()

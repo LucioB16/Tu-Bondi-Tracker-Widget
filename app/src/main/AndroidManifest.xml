@@ -18,6 +18,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name="com.tubondi.widget.ui.arrivals.ArrivalsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
         <receiver
             android:name="com.tubondi.widget.widget.TransitGlanceReceiver"
             android:exported="false">
