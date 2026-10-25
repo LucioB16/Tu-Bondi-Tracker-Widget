@@ -32,8 +32,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
@@ -45,8 +45,8 @@ import com.tubondi.widget.data.catalog.CatalogStop
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
- * Pantalla principal de configuración del widget.
- * Incluye buscador de paradas sobre catálogo offline (RF-8) y request de
+ * Pantalla principal de configuraciÃ³n del widget.
+ * Incluye buscador de paradas sobre catÃ¡logo offline (RF-8) y request de
  * POST_NOTIFICATIONS (SA-7).
  */
 @AndroidEntryPoint
@@ -65,7 +65,7 @@ class ConfigActivity : ComponentActivity() {
         }
         setResult(RESULT_CANCELED)
         setContent {
-            val state by viewModel.state.collectAsStateWithLifecycle()
+            val state by viewModel.state.collectAsState()
             LaunchedEffect(appWidgetId) {
                 viewModel.load(appWidgetId)
             }
@@ -128,7 +128,7 @@ fun ConfigScreen(
                 value = state.searchQuery,
                 onValueChange = onSearchChanged,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Código, calle o barrio") },
+                placeholder = { Text("CÃ³digo, calle o barrio") },
                 singleLine = true
             )
             state.searchResults.forEach { result ->
@@ -143,7 +143,7 @@ fun ConfigScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = result.name, style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = "${result.code} · ${result.hood ?: ""}",
+                            text = "${result.code} Â· ${result.hood ?: ""}",
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -206,7 +206,7 @@ private fun RouteCard(route: RouteUiModel, onClick: () -> Unit) {
     Column(modifier = Modifier
         .fillMaxWidth()
         .padding(vertical = 4.dp)) {
-        Text(text = "${route.lineName} • ${route.routeName}", fontWeight = FontWeight.Medium)
+        Text(text = "${route.lineName} â€¢ ${route.routeName}", fontWeight = FontWeight.Medium)
         Button(onClick = onClick, modifier = Modifier.padding(top = 4.dp)) {
             Text(text = "Agregar paradas")
         }
@@ -270,7 +270,7 @@ private fun SettingsSection(
     Column {
         Text(
             text = "Frecuencia: ${state.refreshMinutes} min" +
-                if (state.refreshMinutes < 15) " (mínimo efectivo 15 min)" else ""
+                if (state.refreshMinutes < 15) " (mÃ­nimo efectivo 15 min)" else ""
         )
         Slider(value = state.refreshMinutes.toFloat(), onValueChange = { onRefreshChanged(it.toInt()) }, valueRange = 1f..60f)
         Row(verticalAlignment = Alignment.CenterVertically) {

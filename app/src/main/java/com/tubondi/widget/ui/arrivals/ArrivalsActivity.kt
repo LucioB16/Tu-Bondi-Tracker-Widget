@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +40,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tubondi.widget.domain.HtmlText
 import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.collectAvisos
@@ -53,7 +53,7 @@ import kotlinx.coroutines.delay
 /**
  * Pantalla completa de arribos (D1, paridad Oma widget.owl:108-160):
  * reloj vivo, arribos agrupados por parada, avisos agregados, refresh
- * manual y acceso a la configuración.
+ * manual y acceso a la configuraciÃ³n.
  */
 @AndroidEntryPoint
 class ArrivalsActivity : ComponentActivity() {
@@ -66,7 +66,7 @@ class ArrivalsActivity : ComponentActivity() {
             ?: AppWidgetManager.INVALID_APPWIDGET_ID
         setContent {
             MaterialTheme {
-                val state by viewModel.state.collectAsStateWithLifecycle()
+                val state by viewModel.state.collectAsState()
                 ArrivalsScreen(
                     state = state,
                     onRefresh = viewModel::refresh,
@@ -123,10 +123,10 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
             )
             Row {
                 OutlinedButton(onClick = onConfig, modifier = Modifier.padding(end = 8.dp)) {
-                    Text(text = "⚙ Configurar")
+                    Text(text = "âš™ Configurar")
                 }
                 Button(onClick = onRefresh, enabled = !state.loading) {
-                    Text(text = "↻ Actualizar")
+                    Text(text = "â†» Actualizar")
                 }
             }
         }
@@ -137,13 +137,13 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
                 CircularProgressIndicator()
             }
             state.error != null -> {
-                // D5: mensaje genérico para 408 nocturno/sin servicio.
+                // D5: mensaje genÃ©rico para 408 nocturno/sin servicio.
                 Text(text = state.error, color = MaterialTheme.colorScheme.error)
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onRefresh) { Text(text = "Reintentar") }
             }
             state.stops.isEmpty() -> {
-                Text(text = "Sin datos todavía")
+                Text(text = "Sin datos todavÃ­a")
             }
             else -> {
                 LazyColumn {
@@ -163,7 +163,7 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
                             Text(text = "Avisos", fontWeight = FontWeight.Bold)
                             avisos.forEach { aviso ->
                                 Text(
-                                    text = "⚠ $aviso",
+                                    text = "âš  $aviso",
                                     color = MaterialTheme.colorScheme.secondary,
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -202,7 +202,7 @@ private fun ArrivalRowFull(arrival: Arrival) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = arrival.etaText.ifBlank { "—" },
+                    text = arrival.etaText.ifBlank { "â€”" },
                     fontWeight = FontWeight.Bold,
                     color = etaColor(arrival.etaMinutes)
                 )
@@ -210,7 +210,7 @@ private fun ArrivalRowFull(arrival: Arrival) {
                 Text(
                     text = buildString {
                         arrival.distanceKm?.let { append("%.1f km".format(it)) }
-                        arrival.operator?.let { if (isNotEmpty()) append(" · $it") }
+                        arrival.operator?.let { if (isNotEmpty()) append(" Â· $it") }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -218,7 +218,7 @@ private fun ArrivalRowFull(arrival: Arrival) {
             }
             arrival.notification?.let { notif ->
                 Text(
-                    text = "⚠ ${HtmlText.stripEntities(notif)}",
+                    text = "âš  ${HtmlText.stripEntities(notif)}",
                     color = MaterialTheme.colorScheme.secondary,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -234,7 +234,7 @@ private fun colorDot(hex: String?): Color =
         Color(0xFFFFB300)
     }
 
-/** Umbrales de color de Oma (widget.owl:63): ≤5 verde, ≤15 ámbar, resto neutro. */
+/** Umbrales de color de Oma (widget.owl:63): â‰¤5 verde, â‰¤15 Ã¡mbar, resto neutro. */
 private fun etaColor(etaMinutes: Int?): Color = when {
     etaMinutes == null -> Color(0xFFE0E0E0)
     etaMinutes <= 5 -> Color(0xFF4CAF50)
