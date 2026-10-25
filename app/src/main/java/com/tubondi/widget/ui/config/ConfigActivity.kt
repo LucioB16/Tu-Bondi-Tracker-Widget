@@ -1,11 +1,17 @@
 package com.tubondi.widget.ui.config
 
+import android.Manifest
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,26 +20,34 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.tubondi.widget.data.catalog.CatalogStop
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
- * Pantalla principal de configuraciÃ³n del widget.
+ * Pantalla principal de configuración del widget.
+ * Incluye buscador de paradas sobre catálogo offline (RF-8) y request de
+ * POST_NOTIFICATIONS (SA-7).
  */
 @AndroidEntryPoint
 class ConfigActivity : ComponentActivity() {
@@ -65,6 +79,9 @@ class ConfigActivity : ComponentActivity() {
                     onNotificationsChanged = viewModel::updateNotifications,
                     onThresholdChanged = viewModel::updateThreshold,
                     onHighContrast = viewModel::toggleHighContrast,
+                    onConfChanged = viewModel::updateConf,
+                    onSearchChanged = viewModel::search,
+                    onAddStop = viewModel::addCatalogStop,
                     onSave = {
                         viewModel.save {
                             val data = Intent().apply {
@@ -90,6 +107,9 @@ fun ConfigScreen(
     onNotificationsChanged: (Boolean) -> Unit,
     onThresholdChanged: (Int) -> Unit,
     onHighContrast: (Boolean) -> Unit,
+    onConfChanged: (String) -> Unit,
+    onSearchChanged: (String) -> Unit,
+    onAddStop: (CatalogStop) -> Unit,
     onSave: () -> Unit
 ) {
     if (state.loading) {
@@ -101,6 +121,55 @@ fun ConfigScreen(
     LazyColumn(modifier = Modifier.padding(16.dp)) {
         item {
             Text(text = state.error ?: "", color = MaterialTheme.colorScheme.error)
+        }
+        item {
+            Text(text = "Buscar parada", fontWeight = FontWeight.Bold)
+            TextField(
+                value = state.searchQuery,
+                onValueChange = onSearchChanged,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Código, calle o barrio") },
+                singleLine = true
+            )
+            state.searchResults.forEach { result ->
+                val already = state.selectedStops.any { it.stop.code == result.code && it.isSelected }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = result.name, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = "${result.code} · ${result.hood ?: ""}",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Button(
+                        onClick = { onAddStop(result) },
+                        enabled = !already
+                    ) {
+                        Text(if (already) "Agregada" else "+ Agregar")
+                    }
+                }
+            }
+        }
+        item {
+            if (state.hubs.isNotEmpty()) {
+                Text(text = "Hubs", fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    state.hubs.forEach { hub ->
+                        OutlinedButton(
+                            onClick = { onAddStop(CatalogStop(code = hub, name = hub)) },
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            Text(hub)
+                        }
+                    }
+                }
+            }
         }
         item {
             Text(text = "${state.availableRoutes.size} rutas disponibles", fontWeight = FontWeight.Bold)
@@ -115,7 +184,14 @@ fun ConfigScreen(
         }
         item {
             Spacer(modifier = Modifier.padding(4.dp))
-            SettingsSection(state, onRefreshChanged, onNotificationsChanged, onThresholdChanged, onHighContrast)
+            SettingsSection(
+                state = state,
+                onRefreshChanged = onRefreshChanged,
+                onNotificationsChanged = onNotificationsChanged,
+                onThresholdChanged = onThresholdChanged,
+                onHighContrast = onHighContrast,
+                onConfChanged = onConfChanged
+            )
         }
         item {
             Button(onClick = onSave, enabled = !state.saving, modifier = Modifier.fillMaxWidth()) {
@@ -130,7 +206,7 @@ private fun RouteCard(route: RouteUiModel, onClick: () -> Unit) {
     Column(modifier = Modifier
         .fillMaxWidth()
         .padding(vertical = 4.dp)) {
-        Text(text = "${route.lineName} â€¢ ${route.routeName}", fontWeight = FontWeight.Medium)
+        Text(text = "${route.lineName} • ${route.routeName}", fontWeight = FontWeight.Medium)
         Button(onClick = onClick, modifier = Modifier.padding(top = 4.dp)) {
             Text(text = "Agregar paradas")
         }
@@ -181,14 +257,32 @@ private fun SettingsSection(
     onRefreshChanged: (Int) -> Unit,
     onNotificationsChanged: (Boolean) -> Unit,
     onThresholdChanged: (Int) -> Unit,
-    onHighContrast: (Boolean) -> Unit
+    onHighContrast: (Boolean) -> Unit,
+    onConfChanged: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // SA-7: si se deniega, los avisos quedan desactivados en la config.
+        if (!granted) onNotificationsChanged(false)
+    }
     Column {
-        Text(text = "Frecuencia: ${state.refreshMinutes} min")
+        Text(
+            text = "Frecuencia: ${state.refreshMinutes} min" +
+                if (state.refreshMinutes < 15) " (mínimo efectivo 15 min)" else ""
+        )
         Slider(value = state.refreshMinutes.toFloat(), onValueChange = { onRefreshChanged(it.toInt()) }, valueRange = 1f..60f)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "Notificaciones")
-            Switch(checked = state.notificationsEnabled, onCheckedChange = onNotificationsChanged)
+            Switch(checked = state.notificationsEnabled, onCheckedChange = { enabled ->
+                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                onNotificationsChanged(enabled)
+            })
         }
         Text(text = "Umbral: ${state.thresholdMinutes} min")
         Slider(value = state.thresholdMinutes.toFloat(), onValueChange = { onThresholdChanged(it.toInt()) }, valueRange = 1f..30f)
@@ -196,5 +290,11 @@ private fun SettingsSection(
             Text(text = "Alto contraste")
             Switch(checked = state.highContrast, onCheckedChange = onHighContrast)
         }
+        Text(text = "Conf")
+        TextField(
+            value = state.conf,
+            onValueChange = onConfChanged,
+            singleLine = true
+        )
     }
 }
