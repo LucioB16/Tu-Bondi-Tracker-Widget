@@ -7,22 +7,23 @@ import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.LocalContext
-import androidx.glance.action.actionRunCallback
-import androidx.glance.action.actionStartActivity
+import androidx.compose.ui.graphics.Color
+import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.GlanceId
+import androidx.glance.GlanceId
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
-import androidx.glance.appwidget.state.PreferencesGlanceStateDefinition
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.background
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.defaultWeight
-import androidx.glance.layout.clickable
+import androidx.glance.action.clickable
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -71,9 +72,9 @@ class TransitAppWidget : GlanceAppWidget() {
 @Composable
 private fun WidgetContent(state: WidgetUiState, configIntent: Intent) {
     val background = if (state.highContrast) {
-        ColorProvider(day = 0xFF000000L, night = 0xFF000000L)
+        ColorProvider(day = Color(0xFF000000L), night = Color(0xFF000000L))
     } else {
-        ColorProvider(day = 0xFF1F1B24L, night = 0xFF1F1B24L)
+        ColorProvider(day = Color(0xFF1F1B24L), night = Color(0xFF1F1B24L))
     }
     Column(
         modifier = GlanceModifier
@@ -86,7 +87,7 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent) {
         if (state.arrivals.isEmpty()) {
             Text(
                 text = state.errorMessage ?: "Sin datos",
-                style = TextStyle(color = ColorProvider(0xFFFFFFFFL))
+                style = TextStyle(color = ColorProvider(Color(0xFFFFFFFFL), Color(0xFFFFFFFFL)))
             )
         } else {
             LazyColumn(modifier = GlanceModifier.fillMaxWidth()) {
@@ -101,12 +102,12 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent) {
                         ) {
                             Text(
                                 text = arrival.lineName,
-                                style = TextStyle(fontWeight = FontWeight.Bold, color = ColorProvider(0xFFFFFFFFL)),
+                                style = TextStyle(fontWeight = FontWeight.Bold, color = ColorProvider(Color(0xFFFFFFFFL), Color(0xFFFFFFFFL))),
                                 modifier = GlanceModifier.defaultWeight()
                             )
                             Text(
                                 text = "${arrival.etaMinutes} min",
-                                style = TextStyle(color = ColorProvider(0xFFE0E0E0L))
+                                style = TextStyle(color = ColorProvider(Color(0xFFE0E0E0L), Color(0xFFE0E0E0L)))
                             )
                         }
                     }
@@ -128,11 +129,11 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text(
                 text = context.getString(R.string.widget_header),
-                style = TextStyle(fontWeight = FontWeight.Bold, color = ColorProvider(0xFFFFFFFFL))
+                style = TextStyle(fontWeight = FontWeight.Bold, color = ColorProvider(Color(0xFFFFFFFFL), Color(0xFFFFFFFFL)))
             )
             if (state.lastUpdatedEpochMillis > 0) {
                 val formatted = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(state.lastUpdatedEpochMillis))
-                Text(text = "Actualizado $formatted", style = TextStyle(color = ColorProvider(0xFFB0BEC5L)))
+                Text(text = "Actualizado $formatted", style = TextStyle(color = ColorProvider(Color(0xFFB0BEC5L), Color(0xFFB0BEC5L))))
             }
         }
         androidx.glance.Button(
@@ -146,10 +147,10 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent) {
 private fun StopHeader(stopArrivals: StopArrivals) {
     Text(
         text = stopArrivals.stop.name,
-        style = TextStyle(fontWeight = FontWeight.Bold, color = ColorProvider(0xFFBBDEFBL)),
+        style = TextStyle(fontWeight = FontWeight.Bold, color = ColorProvider(Color(0xFFBBDEFBL), Color(0xFFBBDEFBL))),
         modifier = GlanceModifier.padding(top = 8.dp)
     )
     stopArrivals.backendMessage?.let {
-        Text(text = it, style = TextStyle(color = ColorProvider(0xFFFFAB91L)))
+        Text(text = it, style = TextStyle(color = ColorProvider(Color(0xFFFFAB91L), Color(0xFFFFAB91L))))
     }
 }

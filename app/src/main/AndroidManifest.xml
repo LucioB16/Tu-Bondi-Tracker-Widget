@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:name=".TuBondiApp"
         android:allowBackup="true"
@@ -26,11 +28,6 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/transit_widget_info" />
         </receiver>
-
-        <service
-            android:name="androidx.work.impl.background.systemjob.SystemJobService"
-            android:permission="android.permission.BIND_JOB_SERVICE"
-            android:exported="false" />
 
         <receiver
             android:name="com.tubondi.widget.work.NotificationSilenceReceiver"

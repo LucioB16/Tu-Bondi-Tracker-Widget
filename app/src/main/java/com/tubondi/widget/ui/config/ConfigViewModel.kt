@@ -160,10 +160,9 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
-    companion object {
-        private const val DEFAULT_CONF = "cbaciudad"
-    }
 }
+
+private const val DEFAULT_CONF = "cbaciudad"
 
 data class ConfigUiState(
     val appWidgetId: Int = -1,

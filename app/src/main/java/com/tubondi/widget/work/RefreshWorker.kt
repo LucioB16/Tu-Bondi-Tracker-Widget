@@ -19,8 +19,7 @@ import com.tubondi.widget.widget.WidgetStateStorage
 import com.tubondi.widget.widget.WidgetUiState
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.android.work.HiltWorker
+import androidx.hilt.work.HiltWorker
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,7 +27,7 @@ import java.util.concurrent.TimeUnit
  */
 @HiltWorker
 class RefreshWorker @AssistedInject constructor(
-    @Assisted @ApplicationContext context: Context,
+    @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val prefs: WidgetPreferences,
     private val repository: TransitRepository,

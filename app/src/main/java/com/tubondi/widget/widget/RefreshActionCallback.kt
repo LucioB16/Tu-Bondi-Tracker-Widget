@@ -2,7 +2,7 @@ package com.tubondi.widget.widget
 
 import android.content.Context
 import androidx.glance.GlanceId
-import androidx.glance.action.ActionCallback
+import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.tubondi.widget.work.RefreshWorker
