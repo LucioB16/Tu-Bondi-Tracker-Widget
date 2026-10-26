@@ -35,7 +35,8 @@ import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.text.FontWeight
-import androidx.glance.unit.ColorProvider
+import androidx.compose.ui.graphics.Color
+import androidx.glance.color.ColorProvider
 import com.tubondi.widget.R
 import com.tubondi.widget.domain.HtmlText
 import com.tubondi.widget.domain.model.Arrival
@@ -50,12 +51,10 @@ import java.util.Locale
 
 /**
  * Glance App Widget que construye el tablero de arribos (RF-3/RF-11/RF-12):
- * fila de arribo con color de línea, destino, distancia y avisos del
- * backend; tap -> pantalla completa (D1), ⚙ -> configuración.
+ * fila de arribo con color de lÃ­nea, destino, distancia y avisos del
+ * backend; tap -> pantalla completa (D1), âš™ -> configuraciÃ³n.
  *
- * Colores: Glance 1.1.0 expone tipo/fábrica en androidx.glance.unit
- * (verificado con javap sobre el AAR); el widget es oscuro, mismo color
- * día/noche, con alto contraste opcional (RF-12).
+ * Colores: fábrica day/night de androidx.glance.color — el ColorProvider fijo (unit) crashea en RemoteViews con Resources\ (bug de Glance 1.1.0 verificado en dispositivo).
  */
 class TransitAppWidget : GlanceAppWidget() {
 
@@ -87,28 +86,32 @@ class TransitAppWidget : GlanceAppWidget() {
 }
 
 private fun background(highContrast: Boolean) =
-    if (highContrast) ColorProvider(0xFF000000.toInt()) else ColorProvider(0xFF1F1B24.toInt())
+    if (highContrast) {
+        ColorProvider(day = Color(0xFF000000), night = Color(0xFF000000))
+    } else {
+        ColorProvider(day = Color(0xFF1F1B24), night = Color(0xFF1F1B24))
+    }
 
-private fun onBackground() = ColorProvider(0xFFFFFFFF.toInt())
+private fun onBackground() = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFFFFFFFF))
 
-private fun muted() = ColorProvider(0xFFB0BEC5.toInt())
+private fun muted() = ColorProvider(day = Color(0xFFB0BEC5), night = Color(0xFFB0BEC5))
 
-private fun warn() = ColorProvider(0xFFFFAB91.toInt())
+private fun warn() = ColorProvider(day = Color(0xFFFFAB91), night = Color(0xFFFFAB91))
 
-private fun stopHeaderColor() = ColorProvider(0xFFBBDEFB.toInt())
+private fun stopHeaderColor() = ColorProvider(day = Color(0xFFBBDEFB), night = Color(0xFFBBDEFB))
 
-/** Umbrales de color de Oma (widget.owl:63): ≤5 verde, ≤15 ámbar, resto neutro. */
+/** Umbrales de color de Oma (widget.owl:63): â‰¤5 verde, â‰¤15 Ã¡mbar, resto neutro. */
 private fun etaColor(etaMinutes: Int?) = when {
-    etaMinutes == null -> ColorProvider(0xFFE0E0E0.toInt())
-    etaMinutes <= 5 -> ColorProvider(0xFF4CAF50.toInt())
-    etaMinutes <= 15 -> ColorProvider(0xFFFFC107.toInt())
-    else -> ColorProvider(0xFFE0E0E0.toInt())
+    etaMinutes == null -> ColorProvider(day = Color(0xFFE0E0E0), night = Color(0xFFE0E0E0))
+    etaMinutes <= 5 -> ColorProvider(day = Color(0xFF4CAF50), night = Color(0xFF4CAF50))
+    etaMinutes <= 15 -> ColorProvider(day = Color(0xFFFFC107), night = Color(0xFFFFC107))
+    else -> ColorProvider(day = Color(0xFFE0E0E0), night = Color(0xFFE0E0E0))
 }
 
 private fun colorDot(hex: String?) = try {
-    ColorProvider(android.graphics.Color.parseColor(hex ?: "#ffb300"))
+    ColorProvider(day = Color(android.graphics.Color.parseColor(hex ?: "#ffb300")), night = Color(android.graphics.Color.parseColor(hex ?: "#ffb300")))
 } catch (ex: IllegalArgumentException) {
-    ColorProvider(0xFFFFB300.toInt())
+    ColorProvider(day = Color(0xFFFFB300), night = Color(0xFFFFB300))
 }
 
 @Composable
@@ -131,7 +134,7 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent, arrivalsIn
             else -> {
                 if (state.degraded) {
                     Text(
-                        text = "⚠ ${state.errorMessage ?: "último refresh falló"}",
+                        text = "âš  ${state.errorMessage ?: "Ãºltimo refresh fallÃ³"}",
                         style = TextStyle(color = warn(), fontSize = 12.sp),
                         maxLines = 1
                     )
@@ -166,7 +169,7 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent
             if (state.lastUpdatedEpochMillis > 0) {
                 val formatted = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(state.lastUpdatedEpochMillis))
                 val label = if (state.degraded) {
-                    "última $formatted"
+                    "Ãºltima $formatted"
                 } else {
                     "Actualizado $formatted"
                 }
@@ -174,7 +177,7 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent
             }
         }
         androidx.glance.Button(
-            text = "⚙",
+            text = "âš™",
             modifier = GlanceModifier.semantics { contentDescription = "Configurar widget" },
             onClick = actionStartActivity(configIntent)
         )
@@ -195,7 +198,7 @@ private fun StopHeader(stopArrivals: StopArrivals) {
     )
     stopArrivals.backendMessage?.let {
         Text(
-            text = "⚠ ${HtmlText.stripEntities(it)}",
+            text = "âš  ${HtmlText.stripEntities(it)}",
             style = TextStyle(color = warn(), fontSize = 12.sp),
             maxLines = 2
         )
@@ -203,9 +206,9 @@ private fun StopHeader(stopArrivals: StopArrivals) {
 }
 
 /**
- * Fila de arribo enriquecida (RF-3/RF-11): dot de color de línea,
+ * Fila de arribo enriquecida (RF-3/RF-11): dot de color de lÃ­nea,
  * destino, distancia, aviso por arribo y ETA coloreada por umbral
- * (≤5 verde, ≤15 ámbar, resto neutro — paridad Oma widget.owl:63).
+ * (â‰¤5 verde, â‰¤15 Ã¡mbar, resto neutro â€” paridad Oma widget.owl:63).
  */
 @Composable
 private fun ArrivalRow(arrival: Arrival) {
@@ -237,14 +240,14 @@ private fun ArrivalRow(arrival: Arrival) {
             }
             arrival.notification?.takeIf { it.isNotBlank() }?.let { notif ->
                 Text(
-                    text = "⚠ ${HtmlText.stripEntities(notif)}",
+                    text = "âš  ${HtmlText.stripEntities(notif)}",
                     style = TextStyle(color = warn(), fontSize = 12.sp),
                     maxLines = 2
                 )
             }
         }
         Text(
-            text = arrival.etaText.ifBlank { "—" },
+            text = arrival.etaText.ifBlank { "â€”" },
             style = TextStyle(fontWeight = FontWeight.Bold, color = etaColor(arrival.etaMinutes))
         )
     }

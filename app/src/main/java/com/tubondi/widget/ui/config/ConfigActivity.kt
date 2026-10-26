@@ -2,6 +2,7 @@ package com.tubondi.widget.ui.config
 
 import android.Manifest
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -42,11 +43,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.tubondi.widget.data.catalog.CatalogStop
+import com.tubondi.widget.widget.TransitGlanceReceiver
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
- * Pantalla principal de configuraciÃ³n del widget.
- * Incluye buscador de paradas sobre catÃ¡logo offline (RF-8) y request de
+ * Pantalla principal de configuraciÃƒÂ³n del widget.
+ * Incluye buscador de paradas sobre catÃƒÂ¡logo offline (RF-8) y request de
  * POST_NOTIFICATIONS (SA-7).
  */
 @AndroidEntryPoint
@@ -128,7 +130,7 @@ fun ConfigScreen(
                 value = state.searchQuery,
                 onValueChange = onSearchChanged,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("CÃ³digo, calle o barrio") },
+                placeholder = { Text("CÃƒÂ³digo, calle o barrio") },
                 singleLine = true
             )
             state.searchResults.forEach { result ->
@@ -143,7 +145,7 @@ fun ConfigScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = result.name, style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = "${result.code} Â· ${result.hood ?: ""}",
+                            text = "${result.code} Ã‚Â· ${result.hood ?: ""}",
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -206,7 +208,7 @@ private fun RouteCard(route: RouteUiModel, onClick: () -> Unit) {
     Column(modifier = Modifier
         .fillMaxWidth()
         .padding(vertical = 4.dp)) {
-        Text(text = "${route.lineName} â€¢ ${route.routeName}", fontWeight = FontWeight.Medium)
+        Text(text = "${route.lineName} Ã¢â‚¬Â¢ ${route.routeName}", fontWeight = FontWeight.Medium)
         Button(onClick = onClick, modifier = Modifier.padding(top = 4.dp)) {
             Text(text = "Agregar paradas")
         }
@@ -270,7 +272,7 @@ private fun SettingsSection(
     Column {
         Text(
             text = "Frecuencia: ${state.refreshMinutes} min" +
-                if (state.refreshMinutes < 15) " (mÃ­nimo efectivo 15 min)" else ""
+                if (state.refreshMinutes < 15) " (mÃƒÂ­nimo efectivo 15 min)" else ""
         )
         Slider(value = state.refreshMinutes.toFloat(), onValueChange = { onRefreshChanged(it.toInt()) }, valueRange = 1f..60f)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -296,5 +298,16 @@ private fun SettingsSection(
             onValueChange = onConfChanged,
             singleLine = true
         )
+        OutlinedButton(onClick = {
+            val manager = context.getSystemService(AppWidgetManager::class.java)
+            val provider = ComponentName(context, TransitGlanceReceiver::class.java)
+            if (manager.isRequestPinAppWidgetSupported) {
+                // API del sistema: el launcher coloca el widget en una celda
+                // libre sin drag manual (SA-1 alternativa).
+                manager.requestPinAppWidget(provider, null, null)
+            }
+        }) {
+            Text(text = "Agregar widget al inicio")
+        }
     }
 }
