@@ -23,6 +23,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.hilt.work.HiltWorker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -73,6 +74,8 @@ class RefreshWorker @AssistedInject constructor(
                 WidgetStateStorage.writeState(applicationContext, glanceId, state)
                 TransitAppWidget().update(applicationContext, glanceId)
                 notifier.dispatch(config, arrivals)
+            } catch (ex: CancellationException) {
+                throw ex
             } catch (ex: Exception) {
  // SA-8: retener el último dato válido; el error se anota sin
  // borrar los arribos previos. D5: mensaje genérico para 408 nocturno.

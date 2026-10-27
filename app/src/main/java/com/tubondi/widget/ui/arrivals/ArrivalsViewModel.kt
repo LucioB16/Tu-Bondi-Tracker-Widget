@@ -11,6 +11,7 @@ import com.tubondi.widget.prefs.WidgetPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -66,6 +67,8 @@ class ArrivalsViewModel @Inject constructor(
             _state.update {
                 it.copy(loading = false, stops = arrivals, lastUpdated = System.currentTimeMillis())
             }
+        } catch (ex: CancellationException) {
+            throw ex
         } catch (ex: Exception) {
             // D5: mensaje genérico para el 408 nocturno/sin servicio.
             _state.update { it.copy(loading = false, error = friendlyErrorMessage(ex)) }

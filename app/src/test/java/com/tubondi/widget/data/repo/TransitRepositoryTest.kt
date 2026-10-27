@@ -11,12 +11,25 @@ import com.tubondi.widget.domain.model.StopSelection
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import okhttp3.Call
+import okhttp3.EventListener
+import okhttp3.JavaNetCookieJar
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Test
+import java.io.IOException
+import java.net.CookieManager
+import java.net.CookiePolicy
 import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
-import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class TransitRepositoryTest {
     private val client = mockk<TuBondiHttpClient>()
@@ -82,5 +95,76 @@ class TransitRepositoryTest {
 
         val failure = runCatching { repo.fetchArrivalsForConfig(config) }.exceptionOrNull()
         assertThat(failure).isInstanceOf(IOException::class.java)
+    }
+
+    @Test
+    fun realCycleBudgetCancelsSlowHttpAndRejectsPartialResults() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .addHeader("Set-Cookie", "PHPSESSID=c1-test; path=/")
+                    .setBody("<html><script>operacion:'12345678901234567890';</script></html>")
+            )
+            server.enqueue(MockResponse().setResponseCode(200)) // registro de fp
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""{"proximos_arribos":[]}""")
+                    .setBodyDelay(12, TimeUnit.SECONDS)
+            )
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+
+            val callCanceled = CountDownLatch(1)
+            val cancellationObserved = AtomicBoolean(false)
+            val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+            val okHttpClient = OkHttpClient.Builder()
+                .cookieJar(JavaNetCookieJar(cookieManager))
+                .eventListener(object : EventListener() {
+                    override fun callFailed(call: Call, ioe: IOException) {
+                        if (call.isCanceled()) {
+                            cancellationObserved.set(true)
+                            callCanceled.countDown()
+                        }
+                    }
+                })
+                .retryOnConnectionFailure(false)
+                .readTimeout(40, TimeUnit.SECONDS)
+                .build()
+            val httpClient = TuBondiHttpClient(
+                baseUrl = server.url("/").toString().trimEnd('/'),
+                okHttpClient = okHttpClient,
+                cookieManager = cookieManager
+            )
+            val repo = TransitRepository(httpClient, Clock.systemUTC())
+            val config = WidgetConfiguration(
+                appWidgetId = 7,
+                selections = listOf(
+                    StopSelection(Stop("0001", "A"), emptyList()),
+                    StopSelection(Stop("0002", "B"), emptyList())
+                ),
+                refreshIntervalMinutes = 15,
+                notificationsEnabled = false
+            )
+            val startedAt = System.nanoTime()
+
+            val failure = runCatching { repo.fetchArrivalsForConfig(config) }.exceptionOrNull()
+            val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+            assertThat(TransitRepository.CYCLE_BUDGET_MS).isEqualTo(30_000L)
+            assertThat(elapsedMs).isAtLeast(28_000L)
+            assertThat(failure).isInstanceOf(IOException::class.java)
+            assertThat(failure?.message).contains("budget exceeded")
+            assertThat(callCanceled.await(2, TimeUnit.SECONDS)).isTrue()
+            assertThat(cancellationObserved.get()).isTrue()
+            assertThat(server.requestCount).isEqualTo(4)
+            assertThat(httpClient.currentSessionId).isNull()
+            repeat(4) { assertThat(server.takeRequest(1, TimeUnit.SECONDS)).isNotNull() }
+            assertThat(server.takeRequest(100, TimeUnit.MILLISECONDS)).isNull()
+        } finally {
+            server.shutdown()
+        }
     }
 }

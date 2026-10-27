@@ -15,8 +15,9 @@ import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.domain.model.StopSelection
 import com.tubondi.widget.domain.model.WidgetConfiguration
-import java.time.Clock
 import java.io.IOException
+import java.time.Clock
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,7 +44,11 @@ class TransitRepository @Inject constructor(
         return dto.paradas.map { it.toDomainStop() }
     }
 
-    suspend fun fetchArrivalsForConfig(config: WidgetConfiguration): List<StopArrivals> {
+    suspend fun fetchArrivalsForConfig(config: WidgetConfiguration): List<StopArrivals> =
+        withTimeoutOrNull(CYCLE_BUDGET_MS) { fetchCompleteCycle(config) }
+            ?: throw IOException("Refresh cycle budget exceeded")
+
+    private suspend fun fetchCompleteCycle(config: WidgetConfiguration): List<StopArrivals> {
         val results = mutableListOf<StopArrivals>()
         // Presupuesto de ciclo (paridad Oma: todas las paradas dentro de ~30s).
         // Si no se completa el ciclo, el worker conserva el estado anterior.

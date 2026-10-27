@@ -17,7 +17,7 @@ Elegí tus paradas y consultá arribos, destinos y avisos sin abrir el navegador
 - **Información de un vistazo.** Consultá tiempo estimado, destino, distancia y avisos publicados por el servicio.
 - **Más de un widget.** Configurá instancias independientes para distintas paradas.
 - **Alertas opcionales.** Activá notificaciones de arribos próximos y definí el umbral de tiempo.
-- **Sin conexión.** El buscador utiliza un catálogo incluido y el widget conserva el último estado si la actualización falla. Un ciclo que supera su presupuesto puede mostrar resultados parciales.
+- **Sin conexión.** El buscador utiliza un catálogo incluido y el widget conserva todos los datos del último refresh exitoso si una actualización falla o supera su presupuesto; muestra el motivo y la hora de esos datos.
 
 ## Primeros pasos
 

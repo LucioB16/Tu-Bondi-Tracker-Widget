@@ -1,17 +1,27 @@
 package com.tubondi.widget.data.remote
 
+import com.tubondi.widget.data.remote.dto.ArrivalsResponseDto
+import com.tubondi.widget.data.remote.dto.LinesRoutesResponseDto
+import com.tubondi.widget.data.remote.dto.RouteSelectionResponseDto
 import java.io.IOException
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
-import okio.BufferedSink
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.JavaNetCookieJar
@@ -19,10 +29,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
-import com.tubondi.widget.data.remote.dto.ArrivalsResponseDto
-import com.tubondi.widget.data.remote.dto.LinesRoutesResponseDto
-import com.tubondi.widget.data.remote.dto.RouteSelectionResponseDto
+import okio.BufferedSink
 
 /**
  * Cliente HTTP con el handshake anti-408 verificado (receta de Oma,
@@ -34,7 +43,9 @@ import com.tubondi.widget.data.remote.dto.RouteSelectionResponseDto
  * 2. fp aleatorio de 64 hex registrado con POST ?cmd=vista (form fp=, sin conf).
  * 3. Todo POST lleva X-Device-FlakerParam: <fp> + headers de browser y
  *    Content-Type SIN charset.
- * 4. 408/403/cuerpo vacío = sesión expirada -> re-sesión + 1 retry.
+ * 4. Los POST de catálogo/ruta reintentan una vez tras 408/403/cuerpo vacío.
+ *    `proximos_arribos` no repite el POST de una parada durante el mismo ciclo;
+ *    invalida la sesión y falla el ciclo, cuyo siguiente refresh vuelve a iniciar.
  *    SerializationException = contenido no parseable -> sin retry.
  *
  * El estado de sesión vive sólo en memoria del proceso (RNF-4): nunca
@@ -48,10 +59,10 @@ class TuBondiHttpClient(
         coerceInputValues = true
         isLenient = true
     },
-    okHttpClient: OkHttpClient? = null
+    okHttpClient: OkHttpClient? = null,
+    private val cookieManager: CookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
 ) {
     private val normalizedBase = if (baseUrl.endsWith('/')) baseUrl.dropLast(1) else baseUrl
-    private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
     private val client: OkHttpClient = okHttpClient ?: OkHttpClient.Builder()
         .cookieJar(JavaNetCookieJar(cookieManager))
         // El re-sesión+retry ante 408 lo maneja executeWithSession (con nueva
@@ -76,20 +87,19 @@ class TuBondiHttpClient(
     suspend fun initializeSession(conf: String = defaultConf): String = withContext(Dispatchers.IO) {
         val url = webUrl.newBuilder().addQueryParameter("conf", conf).build()
         val request = Request.Builder().get().url(url).header("User-Agent", BROWSER_UA).build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Bootstrap failed ${response.code}")
-            }
-            val html = response.body?.string().orEmpty()
-            sessionId = extractSessionId()
-                ?: throw IllegalStateException("PHPSESSID missing after bootstrap")
-            sessionOperacion = OPERACION_REGEX.find(html)?.groupValues?.get(1)
-                ?: throw IOException("operacion not found in bootstrap HTML")
-            val fp = newFingerprint()
-            sessionFp = fp
-            registerFingerprint(fp)
-            return@withContext sessionId!!
+        val response = requestText(request)
+        if (response.first !in 200..299) {
+            throw IOException("Bootstrap failed ${response.first}")
         }
+        val html = response.second
+        sessionId = extractSessionId()
+            ?: throw IllegalStateException("PHPSESSID missing after bootstrap")
+        sessionOperacion = OPERACION_REGEX.find(html)?.groupValues?.get(1)
+            ?: throw IOException("operacion not found in bootstrap HTML")
+        val fp = newFingerprint()
+        sessionFp = fp
+        registerFingerprint(fp)
+        return@withContext sessionId!!
     }
 
     suspend fun getLinesAndRoutes(conf: String? = null): LinesRoutesResponseDto =
@@ -120,7 +130,10 @@ class TuBondiHttpClient(
         conf: String? = null,
         show80: Boolean = false,
         onlyGps: Map<Int, Boolean>? = null
-    ): ArrivalsResponseDto = executeWithSession {
+    ): ArrivalsResponseDto = executeWithSession(maxAttempts = 1) {
+        // RNF-1: como máximo un POST de arribos por parada y ciclo. Un 408,
+        // 403, cuerpo vacío o error I/O falla el refresh completo; la próxima
+        // invocación manual/periódica inicia sesión nueva, sin repetir esta parada.
         val serializer = MapSerializer(String.serializer(), Boolean.serializer())
         val onlyGpsPayload = onlyGps?.entries?.associate { it.key.toString() to it.value }.orEmpty()
         postForm(
@@ -169,20 +182,28 @@ class TuBondiHttpClient(
         get() = sessionId
 
     /**
-     * Ciclo con re-sesión: 2 intentos como máximo. Una SerializationException
-     * no se reintenta (la respuesta fue 200 pero el contenido no es el esperado;
-     * una sesión nueva no lo arregla).
+     * Ejecuta una operación con sesión y el máximo de intentos indicado.
+     * Una SerializationException no se reintenta (la respuesta fue 200 pero el
+     * contenido no es el esperado; una sesión nueva no lo arregla).
      */
-    private suspend fun <T> executeWithSession(block: suspend () -> T): T {
+    private suspend fun <T> executeWithSession(
+        maxAttempts: Int = 2,
+        block: suspend () -> T
+    ): T {
+        require(maxAttempts > 0)
         var attempt = 0
         var lastError: Throwable? = null
-        while (attempt < 2) {
+        while (attempt < maxAttempts) {
             try {
                 if (sessionId.isNullOrEmpty()) initializeSession()
                 return block()
+            } catch (ex: CancellationException) {
+                resetSession()
+                throw ex
             } catch (ex: SerializationException) {
                 throw ex
             } catch (ex: IOException) {
+                currentCoroutineContext().ensureActive()
                 lastError = ex
                 resetSession()
                 attempt++
@@ -206,7 +227,7 @@ class TuBondiHttpClient(
             .post(formBodyNoCharset(listOf("fp" to fp)))
             .header("User-Agent", BROWSER_UA)
             .build()
-        client.newCall(request).execute().use { /* respuesta descartada */ }
+        requestText(request)
     }
 
     /**
@@ -255,21 +276,40 @@ class TuBondiHttpClient(
             .header("X-Device-FlakerParam", sessionFp.orEmpty())
             .header("User-Agent", BROWSER_UA)
             .build()
-        client.newCall(request).execute().use { response ->
-            when (response.code) {
-                408 -> throw IOException("Session expired (408)")
-                403 -> throw IOException("Session expired (403)")
-            }
-            if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code}")
-            }
-            val payload = response.body?.string()
-            if (payload.isNullOrEmpty()) {
-                throw IOException("Empty body (posible 408 lógico del server)")
-            }
-            return@withContext parse(payload)
+        val response = requestText(request)
+        when (response.first) {
+            408 -> throw IOException("Session expired (408)")
+            403 -> throw IOException("Session expired (403)")
         }
+        if (response.first !in 200..299) {
+            throw IOException("HTTP ${response.first}")
+        }
+        val payload = response.second
+        if (payload.isNullOrEmpty()) {
+            throw IOException("Empty body (posible 408 lógico del server)")
+        }
+        return@withContext parse(payload)
     }
+
+    private suspend fun requestText(request: Request): Pair<Int, String> =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        val result = response.use { it.code to it.body?.string().orEmpty() }
+                        if (continuation.isActive) continuation.resume(result)
+                    } catch (e: IOException) {
+                        if (continuation.isActive) continuation.resumeWithException(e)
+                    }
+                }
+            })
+        }
 
     private fun newFingerprint(): String {
         val bytes = ByteArray(32)

@@ -1,6 +1,7 @@
 package com.tubondi.widget.widget
 
 import com.google.common.truth.Truth.assertThat
+import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.StopArrivals
 import org.junit.Test
@@ -13,7 +14,32 @@ class WidgetUiStateTest {
     @Test
     fun errorStateRetainsPreviousArrivals() {
         val previous = WidgetUiState(
-            arrivals = listOf(StopArrivals(Stop("0001", "A"), emptyList())),
+            arrivals = listOf(
+                StopArrivals(
+                    Stop("0001", "A"),
+                    listOf(
+                        Arrival(
+                            stopCode = "0001",
+                            lineId = "10",
+                            lineName = "10",
+                            etaMinutes = 4,
+                            etaText = "4min"
+                        )
+                    )
+                ),
+                StopArrivals(
+                    Stop("0002", "B"),
+                    listOf(
+                        Arrival(
+                            stopCode = "0002",
+                            lineId = "20",
+                            lineName = "20",
+                            etaMinutes = 8,
+                            etaText = "8min"
+                        )
+                    )
+                )
+            ),
             lastUpdatedEpochMillis = 123L
         )
 
