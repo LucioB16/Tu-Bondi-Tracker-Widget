@@ -46,7 +46,7 @@ class ConfigViewModel @Inject constructor(
         _state.update { it.copy(loading = true, appWidgetId = appWidgetId) }
         viewModelScope.launch {
             try {
-                // La config previa define la conf; se lee ANTES de pedir líneas.
+ // La config previa define la conf; se lee ANTES de pedir líneas.
                 val existing = prefs.readConfiguration(appWidgetId)
                 val confToUse = existing?.conf ?: DEFAULT_CONF
                 val linesPayload = try {
@@ -97,7 +97,7 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
-    /** Agrega una parada del catálogo al widget (RF-8); duplicados se ignoran. */
+ /** Agrega una parada del catálogo al widget (RF-8); duplicados se ignoran. */
     fun addCatalogStop(catalogStop: CatalogStop) {
         _state.update { st ->
             if (st.selectedStops.any { it.stop.code == catalogStop.code }) return@update st
@@ -105,7 +105,7 @@ class ConfigViewModel @Inject constructor(
                 selectedStops = st.selectedStops + StopUiModel(
                     stop = catalogRepository.toStop(catalogStop),
                     isSelected = true,
-                    // Sin líneas conocidas aún = todas (semántica del filtro).
+ // Sin líneas conocidas aún = todas (seméntica del filtro).
                     selectedLines = emptySet()
                 ),
                 error = null
@@ -210,10 +210,10 @@ class ConfigViewModel @Inject constructor(
 
 private const val DEFAULT_CONF = "cbaciudad"
 
-/** D2: frecuencia por defecto = mínimo efectivo de WorkManager. */
+ /** D2: frecuencia por defecto = mínimo efectivo de WorkManager. */
 const val DEFAULT_REFRESH_MINUTES = 15
 
-/** Fixture embebido para el fallback offline de líneas (D4). */
+ /** Fixture embebido para el fallback offline de líneas (D4). */
 private const val LINES_ASSET = "api-examples/01-lines_routes.json"
 
 data class ConfigUiState(

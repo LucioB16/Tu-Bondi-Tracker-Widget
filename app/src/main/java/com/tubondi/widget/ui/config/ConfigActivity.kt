@@ -47,8 +47,8 @@ import com.tubondi.widget.widget.TransitGlanceReceiver
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
- * Pantalla principal de configuraciÃƒÂ³n del widget.
- * Incluye buscador de paradas sobre catÃƒÂ¡logo offline (RF-8) y request de
+ * Pantalla principal de configuración del widget.
+ * Incluye buscador de paradas sobre catálogo offline (RF-8) y request de
  * POST_NOTIFICATIONS (SA-7).
  */
 @AndroidEntryPoint
@@ -130,7 +130,7 @@ fun ConfigScreen(
                 value = state.searchQuery,
                 onValueChange = onSearchChanged,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("CÃƒÂ³digo, calle o barrio") },
+        placeholder = { Text("Código, calle o barrio") },
                 singleLine = true
             )
             state.searchResults.forEach { result ->
@@ -145,7 +145,7 @@ fun ConfigScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = result.name, style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = "${result.code} Ã‚Â· ${result.hood ?: ""}",
+        text = "${result.code} · ${result.hood ?: ""}",
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -208,7 +208,7 @@ private fun RouteCard(route: RouteUiModel, onClick: () -> Unit) {
     Column(modifier = Modifier
         .fillMaxWidth()
         .padding(vertical = 4.dp)) {
-        Text(text = "${route.lineName} Ã¢â‚¬Â¢ ${route.routeName}", fontWeight = FontWeight.Medium)
+        Text(text = "${route.lineName} • ${route.routeName}", fontWeight = FontWeight.Medium)
         Button(onClick = onClick, modifier = Modifier.padding(top = 4.dp)) {
             Text(text = "Agregar paradas")
         }
@@ -272,7 +272,7 @@ private fun SettingsSection(
     Column {
         Text(
             text = "Frecuencia: ${state.refreshMinutes} min" +
-                if (state.refreshMinutes < 15) " (mÃƒÂ­nimo efectivo 15 min)" else ""
+        if (state.refreshMinutes < 15) " (mínimo efectivo 15 min)" else ""
         )
         Slider(value = state.refreshMinutes.toFloat(), onValueChange = { onRefreshChanged(it.toInt()) }, valueRange = 1f..60f)
         Row(verticalAlignment = Alignment.CenterVertically) {

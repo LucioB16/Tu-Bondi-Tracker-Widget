@@ -51,10 +51,10 @@ import java.util.Locale
 
 /**
  * Glance App Widget que construye el tablero de arribos (RF-3/RF-11/RF-12):
- * fila de arribo con color de lÃ­nea, destino, distancia y avisos del
- * backend; tap -> pantalla completa (D1), âš™ -> configuraciÃ³n.
+ * fila de arribo con color de línea, destino, distancia y avisos del
+ * backend; tap -> pantalla completa (D1), ⚙ -> configuración.
  *
- * Colores: fábrica day/night de androidx.glance.color — el ColorProvider fijo (unit) crashea en RemoteViews con Resources\ (bug de Glance 1.1.0 verificado en dispositivo).
+ * Colores: fábrica day/night de androidx.glance.color - el ColorProvider fijo (unit) crashea en RemoteViews
  */
 class TransitAppWidget : GlanceAppWidget() {
 
@@ -100,7 +100,7 @@ private fun warn() = ColorProvider(day = Color(0xFFFFAB91), night = Color(0xFFFF
 
 private fun stopHeaderColor() = ColorProvider(day = Color(0xFFBBDEFB), night = Color(0xFFBBDEFB))
 
-/** Umbrales de color de Oma (widget.owl:63): â‰¤5 verde, â‰¤15 Ã¡mbar, resto neutro. */
+ /** Umbrales de color de Oma (widget.owl:63): ≤ 5 verde, ≤ 15 ámbar, resto neutro. */
 private fun etaColor(etaMinutes: Int?) = when {
     etaMinutes == null -> ColorProvider(day = Color(0xFFE0E0E0), night = Color(0xFFE0E0E0))
     etaMinutes <= 5 -> ColorProvider(day = Color(0xFF4CAF50), night = Color(0xFF4CAF50))
@@ -134,7 +134,7 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent, arrivalsIn
             else -> {
                 if (state.degraded) {
                     Text(
-                        text = "âš  ${state.errorMessage ?: "Ãºltimo refresh fallÃ³"}",
+        text = "⚠ ${state.errorMessage ?: "?ltimo refresh falló"}",
                         style = TextStyle(color = warn(), fontSize = 12.sp),
                         maxLines = 1
                     )
@@ -169,7 +169,7 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent
             if (state.lastUpdatedEpochMillis > 0) {
                 val formatted = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(state.lastUpdatedEpochMillis))
                 val label = if (state.degraded) {
-                    "Ãºltima $formatted"
+                    "última $formatted"
                 } else {
                     "Actualizado $formatted"
                 }
@@ -177,7 +177,7 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent
             }
         }
         androidx.glance.Button(
-            text = "âš™",
+        text = "⚙",
             modifier = GlanceModifier.semantics { contentDescription = "Configurar widget" },
             onClick = actionStartActivity(configIntent)
         )
@@ -198,7 +198,7 @@ private fun StopHeader(stopArrivals: StopArrivals) {
     )
     stopArrivals.backendMessage?.let {
         Text(
-            text = "âš  ${HtmlText.stripEntities(it)}",
+        text = "⚠ ${HtmlText.stripEntities(it)}",
             style = TextStyle(color = warn(), fontSize = 12.sp),
             maxLines = 2
         )
@@ -206,9 +206,9 @@ private fun StopHeader(stopArrivals: StopArrivals) {
 }
 
 /**
- * Fila de arribo enriquecida (RF-3/RF-11): dot de color de lÃ­nea,
+ * Fila de arribo enriquecida (RF-3/RF-11): dot de color de línea,
  * destino, distancia, aviso por arribo y ETA coloreada por umbral
- * (â‰¤5 verde, â‰¤15 Ã¡mbar, resto neutro â€” paridad Oma widget.owl:63).
+ * (≤ 5 verde, ≤ 15 ámbar, resto neutro — paridad Oma widget.owl:63).
  */
 @Composable
 private fun ArrivalRow(arrival: Arrival) {
@@ -240,14 +240,14 @@ private fun ArrivalRow(arrival: Arrival) {
             }
             arrival.notification?.takeIf { it.isNotBlank() }?.let { notif ->
                 Text(
-                    text = "âš  ${HtmlText.stripEntities(notif)}",
+        text = "⚠ ${HtmlText.stripEntities(notif)}",
                     style = TextStyle(color = warn(), fontSize = 12.sp),
                     maxLines = 2
                 )
             }
         }
         Text(
-            text = arrival.etaText.ifBlank { "â€”" },
+        text = arrival.etaText.ifBlank { "—" },
             style = TextStyle(fontWeight = FontWeight.Bold, color = etaColor(arrival.etaMinutes))
         )
     }
