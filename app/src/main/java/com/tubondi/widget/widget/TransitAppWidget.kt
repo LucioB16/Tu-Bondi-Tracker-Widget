@@ -134,7 +134,7 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent, arrivalsIn
             else -> {
                 if (state.degraded) {
                     Text(
-        text = "⚠ ${state.errorMessage ?: "?ltimo refresh falló"}",
+        text = "⚠ ${state.errorMessage ?: "último refresh falló"}",
                         style = TextStyle(color = warn(), fontSize = 12.sp),
                         maxLines = 1
                     )
@@ -196,9 +196,9 @@ private fun StopHeader(stopArrivals: StopArrivals) {
         style = TextStyle(fontWeight = FontWeight.Bold, color = stopHeaderColor()),
         modifier = GlanceModifier.padding(top = 8.dp)
     )
-    stopArrivals.backendMessage?.let {
+    HtmlText.notice(stopArrivals.backendMessage)?.let {
         Text(
-        text = "⚠ ${HtmlText.stripEntities(it)}",
+            text = "⚠ $it",
             style = TextStyle(color = warn(), fontSize = 12.sp),
             maxLines = 2
         )
@@ -238,9 +238,9 @@ private fun ArrivalRow(arrival: Arrival) {
             arrival.routeDescription?.takeIf { it.isNotBlank() }?.let { dest ->
                 Text(text = dest, style = TextStyle(color = muted(), fontSize = 12.sp), maxLines = 1)
             }
-            arrival.notification?.takeIf { it.isNotBlank() }?.let { notif ->
+            HtmlText.notice(arrival.notification)?.let { notif ->
                 Text(
-        text = "⚠ ${HtmlText.stripEntities(notif)}",
+                    text = "⚠ $notif",
                     style = TextStyle(color = warn(), fontSize = 12.sp),
                     maxLines = 2
                 )

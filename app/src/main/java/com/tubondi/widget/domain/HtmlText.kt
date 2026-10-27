@@ -11,4 +11,7 @@ object HtmlText {
 
     fun stripEntities(text: String): String =
         WHITESPACE.replace(ENTITY.replace(text, " "), " ").trim()
+
+    /** Aviso listo para mostrar, o null si tras limpiar entidades no queda texto. */
+    fun notice(raw: String?): String? = raw?.let { stripEntities(it).ifBlank { null } }
 }

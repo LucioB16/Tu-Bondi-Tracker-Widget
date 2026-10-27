@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -98,7 +99,7 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
     val updatedFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val avisos = remember(state.stops) { state.stops.collectAvisos() }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -216,9 +217,9 @@ private fun ArrivalRowFull(arrival: Arrival) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            arrival.notification?.let { notif ->
+            HtmlText.notice(arrival.notification)?.let { notif ->
                 Text(
-        text = "⚠ ${HtmlText.stripEntities(notif)}",
+                    text = "⚠ $notif",
                     color = MaterialTheme.colorScheme.secondary,
                     style = MaterialTheme.typography.bodySmall
                 )

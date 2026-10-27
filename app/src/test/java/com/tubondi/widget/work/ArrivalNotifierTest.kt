@@ -53,4 +53,20 @@ class ArrivalNotifierTest {
         val shadow = shadowOf(context.getSystemService(NotificationManager::class.java))
         assertThat(shadow.allNotifications).isEmpty()
     }
+
+    @Test
+    fun blockedPermissionDoesNotBurnDedupWindow() {
+        val config = WidgetConfiguration(appWidgetId = 2, selections = emptyList(), nearThresholdMinutes = 5)
+        val stop = Stop(code = "0003", name = "Bloqueada", lines = listOf(Line("1", "1")))
+        val arrivals = listOf(StopArrivals(stop, listOf(Arrival(stopCode = "0003", lineId = "1", lineName = "1", etaMinutes = 1, etaText = "1min", distanceKm = 0.05))))
+        val shadow = shadowOf(context.getSystemService(NotificationManager::class.java))
+
+        shadow.setNotificationsEnabled(false)
+        notifier.dispatch(config, arrivals)
+        assertThat(shadow.allNotifications).isEmpty()
+
+        shadow.setNotificationsEnabled(true)
+        notifier.dispatch(config, arrivals)
+        assertThat(shadow.allNotifications).hasSize(1)
+    }
 }

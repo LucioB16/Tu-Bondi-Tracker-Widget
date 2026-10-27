@@ -102,4 +102,5 @@ fun List<StopArrivals>.collectAvisos(): List<String> =
         listOfNotNull(stop.backendMessage?.takeIf { it.isNotBlank() }) +
             stop.arrivals.mapNotNull { it.notification?.takeIf { n -> n.isNotBlank() } }
     }.map { com.tubondi.widget.domain.HtmlText.stripEntities(it) }
+        .filter { it.isNotBlank() }
         .distinct()

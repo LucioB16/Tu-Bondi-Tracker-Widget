@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.tubondi.widget.data.repo.TransitRepository
 import com.tubondi.widget.di.dataStore
+import com.tubondi.widget.domain.friendlyErrorMessage
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import com.tubondi.widget.prefs.WidgetPreferences
 import com.tubondi.widget.widget.TransitAppWidget
@@ -76,8 +77,7 @@ class RefreshWorker @AssistedInject constructor(
  // SA-8: retener el último dato válido; el error se anota sin
  // borrar los arribos previos. D5: mensaje genérico para 408 nocturno.
                 val previous = WidgetStateStorage.readState(applicationContext, glanceId)
-                val friendly = if (ex.message?.contains("408") == true) "Sin servicio ahora" else ex.message
-                val state = WidgetUiState.errorState(previous, friendly, config.highContrast)
+                val state = WidgetUiState.errorState(previous, friendlyErrorMessage(ex), config.highContrast)
                 WidgetStateStorage.writeState(applicationContext, glanceId, state)
                 TransitAppWidget().update(applicationContext, glanceId)
             }

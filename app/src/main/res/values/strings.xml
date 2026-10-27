@@ -12,6 +12,7 @@
     <string name="widget_header">Próximos arribos TuBondi</string>
     <string name="notification_channel_name">Alertas de arribos</string>
     <string name="notification_body_template">Línea %1$s llega en %2$d min a %3$s</string>
+    <string name="notification_body_arriving">Línea %1$s está llegando a %2$s</string>
     <string name="notification_silence_action">Silenciar 1 h</string>
     <string name="config_instructions">Selecciona paradas y líneas para monitorear.</string>
     <string name="label_high_contrast">Alto contraste</string>

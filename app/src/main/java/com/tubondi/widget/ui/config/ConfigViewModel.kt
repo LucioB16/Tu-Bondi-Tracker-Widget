@@ -8,6 +8,7 @@ import com.tubondi.widget.data.catalog.CatalogStop
 import com.tubondi.widget.data.remote.dto.LineDto
 import com.tubondi.widget.data.remote.dto.LinesRoutesResponseDto
 import com.tubondi.widget.data.repo.TransitRepository
+import com.tubondi.widget.domain.friendlyErrorMessage
 import com.tubondi.widget.domain.model.Line
 import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.StopSelection
@@ -84,7 +85,7 @@ class ConfigViewModel @Inject constructor(
                     )
                 }
             } catch (ex: Exception) {
-                _state.update { it.copy(loading = false, error = ex.message) }
+                _state.update { it.copy(loading = false, error = friendlyErrorMessage(ex)) }
             }
         }
     }
@@ -122,7 +123,7 @@ class ConfigViewModel @Inject constructor(
                     .distinctBy { it.stop.code }
                 _state.update { it.copy(selectedStops = merged, error = null) }
             } catch (ex: Exception) {
-                _state.update { it.copy(error = ex.message) }
+                _state.update { it.copy(error = friendlyErrorMessage(ex)) }
             }
         }
     }
@@ -199,7 +200,7 @@ class ConfigViewModel @Inject constructor(
                 RefreshWorker.enqueuePeriodic(appContext, config)
                 RefreshWorker.enqueueOneTime(appContext, config.appWidgetId)
             } catch (ex: Exception) {
-                _state.update { it.copy(error = ex.message, saving = false) }
+                _state.update { it.copy(error = friendlyErrorMessage(ex), saving = false) }
                 return@launch
             }
             _state.update { it.copy(saving = false) }

@@ -1,12 +1,14 @@
 package com.tubondi.widget.ui.config
 
 import android.Manifest
+import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -30,17 +33,25 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.view.WindowCompat
 import com.tubondi.widget.data.catalog.CatalogStop
 import com.tubondi.widget.widget.TransitGlanceReceiver
@@ -120,7 +131,7 @@ fun ConfigScreen(
         }
         return
     }
-    LazyColumn(modifier = Modifier.padding(16.dp)) {
+    LazyColumn(modifier = Modifier.safeDrawingPadding().padding(16.dp)) {
         item {
             Text(text = state.error ?: "", color = MaterialTheme.colorScheme.error)
         }
@@ -263,11 +274,27 @@ private fun SettingsSection(
     onConfChanged: (String) -> Unit
 ) {
     val context = LocalContext.current
+    // Android deja de mostrar el diálogo tras la segunda negativa o un `pm revoke`;
+    // sin este aviso el switch rebotaba a OFF sin explicación.
+    var notificationsBlocked by remember { mutableStateOf(false) }
+    val lifecycleOwner = context as? ComponentActivity
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            ) notificationsBlocked = false
+        }
+        lifecycleOwner?.lifecycle?.addObserver(observer)
+        onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
+    }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        // SA-7: si se deniega, los avisos quedan desactivados en la config.
-        if (!granted) onNotificationsChanged(false)
+        // SA-7: el switch refleja el resultado real, no la intención.
+        onNotificationsChanged(granted)
+        notificationsBlocked = !granted && (context as? Activity)?.let {
+            !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.POST_NOTIFICATIONS)
+        } == true
     }
     Column {
         Text(
@@ -277,14 +304,34 @@ private fun SettingsSection(
         Slider(value = state.refreshMinutes.toFloat(), onValueChange = { onRefreshChanged(it.toInt()) }, valueRange = 1f..60f)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "Notificaciones")
-            Switch(checked = state.notificationsEnabled, onCheckedChange = { enabled ->
-                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            Switch(checked = state.notificationsEnabled && (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED), onCheckedChange = { enabled ->
+                when {
+                    !enabled -> onNotificationsChanged(false)
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                        PackageManager.PERMISSION_GRANTED -> onNotificationsChanged(true)
+                    else -> {
+                        notificationsBlocked = false
+                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
                 }
-                onNotificationsChanged(enabled)
             })
+        }
+        if (notificationsBlocked) {
+            Text(
+                text = "Permiso de notificaciones bloqueado por el sistema",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            TextButton(onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                )
+            }) {
+                Text(text = "Abrir ajustes de notificaciones")
+            }
         }
         Text(text = "Umbral: ${state.thresholdMinutes} min")
         Slider(value = state.thresholdMinutes.toFloat(), onValueChange = { onThresholdChanged(it.toInt()) }, valueRange = 1f..30f)

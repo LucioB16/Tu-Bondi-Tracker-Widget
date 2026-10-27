@@ -21,6 +21,14 @@ class HtmlTextTest {
     }
 
     @Test
+    fun noticeIsNullWhenOnlyEntitiesRemain() {
+        assertThat(HtmlText.notice("&#128204;")).isNull()
+        assertThat(HtmlText.notice("")).isNull()
+        assertThat(HtmlText.notice(null)).isNull()
+        assertThat(HtmlText.notice("&#128204;Parada Anulada")).isEqualTo("Parada Anulada")
+    }
+
+    @Test
     fun collectAvisosDeduplicatesAndCleans() {
         val stop = Stop("0001", "A")
         val stops = listOf(

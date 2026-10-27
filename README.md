@@ -1,98 +1,63 @@
-# TuBondi Glance Widget
+# Tu Bondi Widget
 
-Widget nativo para Android (Kotlin) que muestra próximos arribos de colectivos en Córdoba usando la API de TuBondi. Incluye buscador de paradas con catálogo offline, pantalla completa de arribos, alertas de línea (cortes/anulaciones), notificaciones de llegada y configuración multi-instancia.
+**Los próximos colectivos de Córdoba, directamente en tu pantalla de inicio.**
 
-## ¿Cómo funciona?
+Elegí tus paradas y consultá arribos, destinos y avisos sin abrir el navegador. Cada widget tiene su propia configuración.
 
-```
-Usuario ➜ ConfigActivity (Compose)
-          ➜ TuBondiHttpClient (handshake anti-408: PHPSESSID + fp + headers de browser)
-              ➜ TransitRepository (mapea DTO ➜ dominio, presupuesto de ciclo 30s)
-                  ➜ DataStore (preferencias por widget)
-                      ➜ WorkManager RefreshWorker (periódico / manual)
-                          ➜ ArrivalNotifier (canal arrivals_alerts, dedup + silencio)
-                              ➜ TransitAppWidget (Jetpack Glance)
-                                  ➜ ArrivalsActivity (pantalla completa, D1)
-```
+<p align="center">
+  <img src="docs/images/widget.png" alt="Widget de Tu Bondi en la pantalla de inicio con próximos arribos" width="280">
+  <img src="docs/images/arribos.png" alt="Pantalla completa de arribos y avisos por parada" width="280">
+</p>
 
-1. Al añadir el widget, se abre la configuración para descubrir líneas/rutas, buscar paradas (catálogo offline de 5050 paradas + 24 hubs) y filtrar líneas.
-2. Se guardan las preferencias por `appWidgetId` en DataStore; al eliminar el widget se limpian config y work pendiente (SA-9).
-3. `RefreshWorker` consulta la API dentro de un presupuesto de 30 s por ciclo, actualiza el widget (Glance) y evalúa notificaciones. Si falla, **retiene el último dato válido** marcándolo como degradado (SA-8).
-4. El widget scrollea con `LazyColumn`, ofrece botón "Actualizar" (con feedback "Actualizando…") y al tocarlo abre la pantalla completa de arribos.
+<p align="center"><sub>Capturas reales del emulador Android; los arribos y avisos dependen del servicio.</sub></p>
 
-## Handshake con la API
+## A mano cuando lo necesitás
 
-La API de TuBondi exige un handshake para no responder 408 (receta verificada contra la API real, ver `docs/SDD_API_CONTRACT.md`):
+- **Tus paradas, tus líneas.** Buscá por código, calle o barrio y elegí qué líneas mostrar.
+- **Información de un vistazo.** Consultá tiempo estimado, destino, distancia y avisos publicados por el servicio.
+- **Más de un widget.** Configurá instancias independientes para distintas paradas.
+- **Alertas opcionales.** Activá notificaciones de arribos próximos y definí el umbral de tiempo.
+- **Sin conexión.** El buscador utiliza un catálogo incluido y el widget conserva el último dato válido si falla una actualización.
 
-1. `GET` de la página urbano con UA de navegador → `PHPSESSID` + `operacion` (gate de frescura, no se envía).
-2. Fingerprint aleatorio de 64 hex registrado con `POST ?cmd=vista`.
-3. Todo POST de comando lleva `X-Device-FlakerParam: <fp>`, `Origin`, `Referer`, headers de browser y `Content-Type` **sin** charset.
-4. Ante 408/403/cuerpo vacío: re-sesión + 1 reintento. `SerializationException` no se reintenta.
+## Primeros pasos
 
-El estado de sesión vive solo en memoria del proceso: nunca se persiste ni se loguea.
+La app requiere **Android 8.0 (API 26) o superior**. Para compilar necesitás Android Studio, Android SDK 35 y JDK 17 o superior.
 
-## Instalación
-
-Requisitos:
-
-- Android Studio con AGP 8.6.1+ (compileSdk 35)
-- JDK 17+
-- Android SDK 26+ (minSdk)
-
-Comandos útiles:
 ```bash
+git clone https://github.com/LucioB16/Tu-Bondi-Tracker-Widget.git
+cd Tu-Bondi-Tracker-Widget
 ./gradlew assembleDebug
+```
+
+En Windows usá `gradlew.bat assembleDebug`. El APK de depuración queda en `app/build/outputs/apk/debug/app-debug.apk`; instalalo desde Android Studio o con `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+
+1. Mantené presionada la pantalla de inicio y agregá **TuBondi Widget** desde el selector de widgets.
+2. Buscá una parada y agregala; si querés, seleccioná líneas específicas.
+3. Ajustá la frecuencia y las alertas, y tocá **Guardar**.
+4. Usá **Actualizar** para pedir datos nuevos o tocá el encabezado para abrir la pantalla completa.
+
+<p align="center"><img src="docs/images/configuracion.png" alt="Configuración del widget con buscador de paradas y rutas disponibles" width="280"></p>
+
+## Actualizaciones y notificaciones
+
+El refresco manual consulta el servicio cuando lo solicitás. El refresco periódico usa WorkManager: Android establece un **mínimo de 15 minutos** y puede demorar la ejecución según batería y condiciones del dispositivo. La disponibilidad y la precisión de los arribos dependen de la API de TuBondi.
+
+En Android 13 o posterior, las notificaciones requieren permiso. Si lo denegás, podés habilitarlo desde los ajustes de Android. El canal permite silenciar los avisos durante una hora; la app evita repetir una alerta para la misma parada y línea durante diez minutos.
+
+## Desarrollo
+
+El widget está construido con Kotlin y Jetpack Glance; la configuración y la pantalla completa usan Compose. DataStore conserva la configuración por widget, WorkManager programa las actualizaciones y OkHttp consulta el servicio.
+
+```bash
 ./gradlew testDebugUnitTest
 ```
 
-## Uso
+Las pruebas unitarias usan fixtures y respuestas simuladas; no necesitan acceso a la API. Para ejecutar y verificar el widget completo, instalá el APK en un dispositivo o emulador y agregalo al launcher.
 
-1. Mantén presionado el escritorio, elegí **Widgets → Browse → TuBondi Widget** y arrastralo a una celda.
-2. Se abre la configuración Compose:
-   - **Buscador de paradas**: por código, calle o barrio (≤25 resultados, funciona offline con el catálogo embebido) + acceso rápido a hubs.
-   - Líneas/rutas siempre frescas de la API (fallback offline si no hay red).
-   - Tocá "+ Agregar" para sumar paradas; filtrá líneas por parada (todas por defecto).
-   - Frecuencia de refresco (por defecto **15 min**, el mínimo efectivo de WorkManager; valores menores aplican solo al refresco manual), umbral de notificaciones, alto contraste y conf.
-3. Al guardar: primer refresh inmediato + refresco periódico (≥15 min por políticas del SO).
-4. El widget muestra cada parada con sus líneas (color, destino, distancia y avisos) y botón "Actualizar". Tocar el widget abre la **pantalla completa** (reloj, arribos agrupados y avisos de la línea); ⚙ vuelve a la configuración.
+La sesión de la API se mantiene en memoria durante las consultas. Las preferencias se guardan localmente y se eliminan al quitar la instancia del widget. No se registran cookies en los logs HTTP configurados por defecto.
 
-## Notificaciones
+## Referencias
 
-- Al activarlas en Android 13+ se pide el permiso `POST_NOTIFICATIONS`; si se deniega, los avisos quedan desactivados sin romper el widget.
-- Se desduplican por parada/línea (10 min) y respetan la acción "Silenciar 1 h".
+Basado en el comportamiento observado de [Tu-Bondi-Oma](https://github.com/LucioB16/Tu-Bondi-Oma) y en los datos de TuBondi. El acceso al servicio puede cambiar independientemente de esta app.
 
-## Limitaciones del sistema
-
-- `PeriodicWorkRequest` mínimo de ~15 min: los valores menores elegidos aplican solo al refresco manual.
-- Los widgets no ejecutan animaciones continuas; el scroll se resuelve con `LazyColumn`.
-
-## Configuración avanzada
-
-- `BaseUrl` y `conf` por defecto: `https://micronauta4.dnsalias.net` / `cbaciudad` (editables en la configuración).
-- Catálogo de paradas embebido como fallback offline; se regenera con el cosechador del repositorio de referencia.
-- Logs HTTP: `HttpLoggingInterceptor` nivel BASIC (nunca registra cookies).
-
-## Privacidad
-
-- `PHPSESSID`, `operacion` y `fp` viven solo en memoria del proceso durante el ciclo de refresh; no se persisten ni registran en logs.
-- La configuración de usuario se guarda localmente en DataStore (por widget) y se elimina al quitar el widget.
-
-## Pruebas
-
-23 pruebas unitarias (sin red):
-
-- Parseo de los 6 fixtures reales de la API + ETA (regla de Oma: 11/21/49, "arribando" → 0).
-- Handshake anti-408 con MockWebServer (orden GET → vista → comando, headers exactos, re-sesión por 408/403/vacío).
-- Presupuesto de ciclo 30 s con reloj simulado; retención de último dato válido.
-- Filtro por `line_id` real; buscador del catálogo; dedup de notificaciones; DataStore por widget.
-- `./gradlew testDebugUnitTest`
-
-## Créditos y referencias
-
-- API TuBondi (Municipalidad de Córdoba).
-- Jetpack Glance, WorkManager, Hilt, OkHttp, DataStore.
-- Comportamiento de referencia: repositorio Tu Bondi (C#) y Tu-Bondi-Oma (contratos y receta anti-408).
-
-## Licencia
-
-Consulta `LICENSE` para más detalles.
+Licencia: consultá [LICENSE](LICENSE).

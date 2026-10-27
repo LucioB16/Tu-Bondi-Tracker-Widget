@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tubondi.widget.data.repo.TransitRepository
+import com.tubondi.widget.domain.friendlyErrorMessage
 import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import com.tubondi.widget.prefs.WidgetPreferences
@@ -67,8 +68,7 @@ class ArrivalsViewModel @Inject constructor(
             }
         } catch (ex: Exception) {
             // D5: mensaje genérico para el 408 nocturno/sin servicio.
-            val friendly = if (ex.message?.contains("408") == true) "Sin servicio ahora" else ex.message
-            _state.update { it.copy(loading = false, error = friendly) }
+            _state.update { it.copy(loading = false, error = friendlyErrorMessage(ex)) }
         }
     }
 }

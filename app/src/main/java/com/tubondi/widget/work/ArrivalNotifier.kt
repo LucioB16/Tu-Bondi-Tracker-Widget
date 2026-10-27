@@ -31,7 +31,8 @@ class ArrivalNotifier @Inject constructor(
     }
 
     fun dispatch(config: WidgetConfiguration, arrivals: List<StopArrivals>) {
-        if (!config.notificationsEnabled || isMuted()) return
+        val notificationsAllowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        if (!config.notificationsEnabled || isMuted() || !notificationsAllowed) return
         val threshold = config.nearThresholdMinutes
         val now = System.currentTimeMillis()
         val recents = loadRecent()
@@ -44,12 +45,16 @@ class ArrivalNotifier @Inject constructor(
                     val lastTime = recents[key] ?: 0L
                     if (now - lastTime < DEDUP_WINDOW_MS) return@forEach
                     recents[key] = now
-                    val content = context.getString(
-                        R.string.notification_body_template,
-                        arrival.lineName,
-                        arrival.etaMinutes,
-                        stopArrivals.stop.name
-                    )
+                    val content = if (arrival.etaMinutes == 0) {
+                        context.getString(R.string.notification_body_arriving, arrival.lineName, stopArrivals.stop.name)
+                    } else {
+                        context.getString(
+                            R.string.notification_body_template,
+                            arrival.lineName,
+                            arrival.etaMinutes,
+                            stopArrivals.stop.name
+                        )
+                    }
                     val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                         .setSmallIcon(R.drawable.ic_notification)
                         .setContentTitle(context.getString(R.string.app_name))
