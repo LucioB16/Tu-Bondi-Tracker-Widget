@@ -14,6 +14,8 @@ import androidx.work.workDataOf
 import com.tubondi.widget.data.repo.TransitRepository
 import com.tubondi.widget.di.dataStore
 import com.tubondi.widget.domain.friendlyErrorMessage
+import com.tubondi.widget.domain.model.MAX_REFRESH_INTERVAL_MINUTES
+import com.tubondi.widget.domain.model.MIN_REFRESH_INTERVAL_MINUTES
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import com.tubondi.widget.prefs.WidgetPreferences
 import com.tubondi.widget.widget.TransitAppWidget
@@ -100,7 +102,10 @@ class RefreshWorker @AssistedInject constructor(
         private const val UNIQUE_WORK = "transit_periodic"
 
         fun enqueuePeriodic(context: Context, config: WidgetConfiguration) {
-            val interval = config.refreshIntervalMinutes.coerceAtLeast(15)
+            val interval = config.refreshIntervalMinutes.coerceIn(
+                MIN_REFRESH_INTERVAL_MINUTES,
+                MAX_REFRESH_INTERVAL_MINUTES
+            )
             val request = PeriodicWorkRequestBuilder<RefreshWorker>(interval.toLong(), TimeUnit.MINUTES)
                 .setInputData(workDataOf(KEY_WIDGET_ID to config.appWidgetId))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)

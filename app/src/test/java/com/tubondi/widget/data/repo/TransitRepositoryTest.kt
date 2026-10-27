@@ -66,6 +66,25 @@ class TransitRepositoryTest {
     }
 
     @Test
+    fun emptyLineFilterIncludesAllLines() = runTest {
+        val stop = Stop("0001", "Colón y General Paz", lines = listOf(Line("10", "10"), Line("20", "20")))
+        val config = WidgetConfiguration(
+            appWidgetId = 8,
+            selections = listOf(StopSelection(stop, selectedLines = emptyList()))
+        )
+        coEvery { client.getArrivals("0001", any(), any(), any()) } returns ArrivalsResponseDto(
+            arrivals = listOf(
+                ArrivalDto(lineId = "10", lineName = "10", demora = "4min"),
+                ArrivalDto(lineId = "20", lineName = "20", demora = "6min")
+            )
+        )
+
+        val result = repository.fetchArrivalsForConfig(config)
+
+        assertThat(result.single().arrivals.map { it.lineId }).containsExactly("10", "20")
+    }
+
+    @Test
     fun cycleBudgetSkipsRemainingStops() = runTest {
         // Reloj simulado: tras la primera consulta salta 31s (> budget de 30s).
         var advanced = false

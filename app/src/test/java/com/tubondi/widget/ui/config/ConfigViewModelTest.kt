@@ -10,9 +10,11 @@ import com.tubondi.widget.data.remote.dto.RouteSummaryDto
 import com.tubondi.widget.data.repo.TransitRepository
 import com.tubondi.widget.domain.model.Line
 import com.tubondi.widget.domain.model.Stop
+import com.tubondi.widget.domain.model.WidgetConfiguration
 import com.tubondi.widget.prefs.WidgetPreferences
 import com.tubondi.widget.util.MainDispatcherRule
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -62,6 +64,66 @@ class ConfigViewModelTest {
         val stopUi = viewModel.state.value.selectedStops.first { it.stop.code == "100" }
         assertThat(stopUi.isSelected).isTrue()
         assertThat(stopUi.selectedLines).containsExactly("1")
+
+        viewModel.toggleStop("100", false)
+        viewModel.toggleStop("100", true)
+        assertThat(viewModel.state.value.selectedStops.first { it.stop.code == "100" }.selectedLines)
+            .containsExactly("1")
+    }
+
+    @Test
+    fun exposesAllRoutesAndReselectingRouteReactivatesStops() = runTest {
+        val routes = (1..25).map { RouteSummaryDto(it.toString(), "Ruta $it", null, null) }
+        coEvery { repository.fetchLinesPayload(any()) } returns LinesRoutesResponseDto(
+            lineas = listOf(LineDto("10", "10", "#fff", null, 100, routes))
+        )
+        viewModel.load(5)
+        advanceUntilIdle()
+        assertThat(viewModel.state.value.availableRoutes).hasSize(25)
+
+        val lastRoute = viewModel.state.value.availableRoutes.last()
+        coEvery { repository.fetchStopsForRoute(lastRoute.routeId, lastRoute.clientId, any()) } returns listOf(
+            Stop(code = "100", name = "San Juan", lines = listOf(Line("1", "1"), Line("2", "2")))
+        )
+        viewModel.selectRoute(lastRoute)
+        advanceUntilIdle()
+        viewModel.toggleStop("100", true)
+        viewModel.toggleLine("100", "2", false)
+        viewModel.toggleStop("100", false)
+        viewModel.selectRoute(lastRoute)
+        advanceUntilIdle()
+
+        val reactivated = viewModel.state.value.selectedStops.single { it.stop.code == "100" }
+        assertThat(reactivated.isSelected).isTrue()
+        assertThat(reactivated.selectedLines).containsExactly("1")
+
+        viewModel.toggleLine("100", "1", false)
+        val allLines = viewModel.state.value.selectedStops.single { it.stop.code == "100" }
+        assertThat(allLines.selectedLines).isEmpty()
+        assertThat(allLines.isLineSelected("1")).isTrue()
+        assertThat(allLines.isLineSelected("2")).isTrue()
+    }
+
+    @Test
+    fun routeReactivationAddsMissingMetadataToManualStop() = runTest {
+        viewModel.load(5)
+        advanceUntilIdle()
+        val route = viewModel.state.value.availableRoutes.first()
+        assertThat(viewModel.addManualStopCode("AA50")).isTrue()
+        viewModel.toggleStop("AA50", false)
+        coEvery { repository.fetchStopsForRoute(route.routeId, route.clientId, any()) } returns listOf(
+            Stop(code = "AA50", name = "Alto Alberdi", lines = listOf(Line("1", "1"), Line("2", "2")))
+        )
+
+        viewModel.selectRoute(route)
+        advanceUntilIdle()
+
+        val stopUi = viewModel.state.value.selectedStops.single()
+        assertThat(stopUi.isSelected).isTrue()
+        assertThat(stopUi.stop.name).isEqualTo("Alto Alberdi")
+        assertThat(stopUi.stop.lines.map { it.id }).containsExactly("1", "2")
+        assertThat(stopUi.isLineSelected("1")).isTrue()
+        assertThat(stopUi.isLineSelected("2")).isTrue()
     }
 
     @Test
@@ -82,9 +144,54 @@ class ConfigViewModelTest {
         val stopUi = viewModel.state.value.selectedStops.first { it.stop.code == "AA50" }
         assertThat(stopUi.isSelected).isTrue()
         assertThat(stopUi.selectedLines).isEmpty() // sin líneas = todas
-        // Duplicados se ignoran.
+        // Un duplicado activo se ignora; si se desactiva, agregarlo lo reactiva.
         viewModel.addCatalogStop(CatalogStop(code = "AA50", name = "Parada X", hood = "ALTO ALBERDI"))
         assertThat(viewModel.state.value.selectedStops.count { it.stop.code == "AA50" }).isEqualTo(1)
+        viewModel.toggleStop("AA50", false)
+        viewModel.addCatalogStop(CatalogStop(code = "AA50", name = "Parada X", hood = "ALTO ALBERDI"))
+        assertThat(viewModel.state.value.selectedStops.single { it.stop.code == "AA50" }.isSelected).isTrue()
+    }
+
+    @Test
+    fun manualCodeIsLocalTrimmedDeduplicatedAndReactivated() = runTest {
+        viewModel.load(5)
+        advanceUntilIdle()
+
+        assertThat(viewModel.addManualStopCode("  AA50  ")).isTrue()
+        var stop = viewModel.state.value.selectedStops.single()
+        assertThat(stop.stop.code).isEqualTo("AA50")
+        assertThat(stop.stop.name).isEqualTo("Parada AA50")
+        assertThat(stop.isSelected).isTrue()
+        assertThat(viewModel.addManualStopCode("AA50")).isFalse()
+        assertThat(viewModel.state.value.selectedStops).hasSize(1)
+        assertThat(viewModel.state.value.error).contains("ya está agregado")
+
+        viewModel.toggleStop("AA50", false)
+        assertThat(viewModel.addManualStopCode("AA50")).isTrue()
+        stop = viewModel.state.value.selectedStops.single()
+        assertThat(stop.isSelected).isTrue()
+        assertThat(viewModel.addManualStopCode("   ")).isFalse()
+        assertThat(viewModel.state.value.selectedStops).hasSize(1)
+        assertThat(viewModel.state.value.error).isEqualTo("Ingresa el código de la parada")
+        coVerify(exactly = 1) { repository.fetchLinesPayload(any()) }
+        coVerify(exactly = 0) { repository.fetchStopsForRoute(any(), any(), any()) }
+    }
+
+    @Test
+    fun legacyRefreshIsClampedAndUpdatesStayInRange() = runTest {
+        coEvery { prefs.readConfiguration(any()) } returns WidgetConfiguration(
+            appWidgetId = 5,
+            selections = emptyList(),
+            refreshIntervalMinutes = 5
+        )
+        viewModel.load(5)
+        advanceUntilIdle()
+        assertThat(viewModel.state.value.refreshMinutes).isEqualTo(15)
+
+        viewModel.updateRefresh(1)
+        assertThat(viewModel.state.value.refreshMinutes).isEqualTo(15)
+        viewModel.updateRefresh(100)
+        assertThat(viewModel.state.value.refreshMinutes).isEqualTo(60)
     }
 
     @Test

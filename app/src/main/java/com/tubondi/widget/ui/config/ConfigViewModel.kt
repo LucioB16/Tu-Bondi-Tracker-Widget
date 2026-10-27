@@ -10,6 +10,8 @@ import com.tubondi.widget.data.remote.dto.LinesRoutesResponseDto
 import com.tubondi.widget.data.repo.TransitRepository
 import com.tubondi.widget.domain.friendlyErrorMessage
 import com.tubondi.widget.domain.model.Line
+import com.tubondi.widget.domain.model.MAX_REFRESH_INTERVAL_MINUTES
+import com.tubondi.widget.domain.model.MIN_REFRESH_INTERVAL_MINUTES
 import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.StopSelection
 import com.tubondi.widget.domain.model.WidgetConfiguration
@@ -73,7 +75,8 @@ class ConfigViewModel @Inject constructor(
                                 )
                             }
                         },
-                        refreshMinutes = existing?.refreshIntervalMinutes ?: DEFAULT_REFRESH_MINUTES,
+                        refreshMinutes = (existing?.refreshIntervalMinutes ?: DEFAULT_REFRESH_MINUTES)
+                            .coerceIn(MIN_REFRESH_INTERVAL_MINUTES, MAX_REFRESH_INTERVAL_MINUTES),
                         notificationsEnabled = existing?.notificationsEnabled ?: true,
                         thresholdMinutes = existing?.nearThresholdMinutes ?: 5,
                         highContrast = existing?.highContrast ?: false,
@@ -98,19 +101,59 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
- /** Agrega una parada del catálogo al widget (RF-8); duplicados se ignoran. */
+    /** Agrega o reactiva una parada del catálogo sin duplicar su código. */
     fun addCatalogStop(catalogStop: CatalogStop) {
         _state.update { st ->
-            if (st.selectedStops.any { it.stop.code == catalogStop.code }) return@update st
-            st.copy(
-                selectedStops = st.selectedStops + StopUiModel(
-                    stop = catalogRepository.toStop(catalogStop),
-                    isSelected = true,
- // Sin líneas conocidas aún = todas (seméntica del filtro).
-                    selectedLines = emptySet()
-                ),
-                error = null
-            )
+            val index = st.selectedStops.indexOfFirst { it.stop.code == catalogStop.code }
+            when {
+                index < 0 -> st.copy(
+                    selectedStops = st.selectedStops + StopUiModel(
+                        stop = catalogRepository.toStop(catalogStop),
+                        isSelected = true,
+                        selectedLines = emptySet()
+                    ),
+                    error = null
+                )
+                st.selectedStops[index].isSelected -> st
+                else -> st.copy(
+                    selectedStops = st.selectedStops.mapIndexed { i, stop ->
+                        if (i == index) stop.copy(isSelected = true) else stop
+                    },
+                    error = null
+                )
+            }
+        }
+    }
+
+    /** Agrega o reactiva un código localmente, sin consultar fuentes remotas. */
+    fun addManualStopCode(rawCode: String): Boolean {
+        val code = rawCode.trim()
+        if (code.isBlank()) {
+            _state.update { it.copy(error = "Ingresa el código de la parada") }
+            return false
+        }
+
+        while (true) {
+            val current = _state.value
+            val index = current.selectedStops.indexOfFirst { it.stop.code == code }
+            val added = index < 0 || !current.selectedStops[index].isSelected
+            val updated = when {
+                index < 0 -> current.copy(
+                    selectedStops = current.selectedStops + StopUiModel(
+                        stop = Stop(code = code, name = "Parada $code"),
+                        isSelected = true
+                    ),
+                    error = null
+                )
+                added -> current.copy(
+                    selectedStops = current.selectedStops.mapIndexed { i, stop ->
+                        if (i == index) stop.copy(isSelected = true) else stop
+                    },
+                    error = null
+                )
+                else -> current.copy(error = "El código $code ya está agregado")
+            }
+            if (_state.compareAndSet(current, updated)) return added
         }
     }
 
@@ -119,9 +162,27 @@ class ConfigViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val stops = repository.fetchStopsForRoute(route.routeId, route.clientId, state.value.conf)
-                val merged = (state.value.selectedStops + stops.map { StopUiModel(stop = it) })
-                    .distinctBy { it.stop.code }
-                _state.update { it.copy(selectedStops = merged, error = null) }
+                    .distinctBy { it.code }
+                _state.update { current ->
+                    val routeStopsByCode = stops.associateBy { it.code }
+                    val existingCodes = current.selectedStops.mapTo(mutableSetOf()) { it.stop.code }
+                    val updatedExisting = current.selectedStops.map { stopUi ->
+                        val routeStop = routeStopsByCode[stopUi.stop.code] ?: return@map stopUi
+                        val mergedStop = routeStop.copy(
+                            lines = (stopUi.stop.lines + routeStop.lines).distinctBy { it.id }
+                        )
+                        val knownLineIds = mergedStop.lines.mapTo(mutableSetOf()) { it.id }
+                        val selectedLines = if (stopUi.selectedLines.isEmpty()) {
+                            emptySet()
+                        } else {
+                            stopUi.selectedLines.intersect(knownLineIds).ifEmpty { emptySet() }
+                        }
+                        stopUi.copy(stop = mergedStop, isSelected = true, selectedLines = selectedLines)
+                    }
+                    val additions = stops.filterNot { it.code in existingCodes }
+                        .map { StopUiModel(stop = it) }
+                    current.copy(selectedStops = updatedExisting + additions, error = null)
+                }
             } catch (ex: Exception) {
                 _state.update { it.copy(error = friendlyErrorMessage(ex)) }
             }
@@ -141,22 +202,22 @@ class ConfigViewModel @Inject constructor(
     fun toggleLine(stopCode: String, lineId: String, enabled: Boolean) {
         _state.update { st ->
             st.copy(
-                selectedStops = st.selectedStops.map {
-                    if (it.stop.code == stopCode) {
-                        val newLines = if (enabled) {
-                            it.selectedLines + lineId
-                        } else {
-                            it.selectedLines - lineId
-                        }
-                        it.copy(selectedLines = newLines)
-                    } else it
+                selectedStops = st.selectedStops.map { stopUi ->
+                    if (stopUi.stop.code == stopCode) {
+                        val allLines = stopUi.stop.lines.mapTo(mutableSetOf()) { it.id }
+                        val currentLines = stopUi.selectedLines.ifEmpty { allLines }
+                        val selected = if (enabled) currentLines + lineId else currentLines - lineId
+                        stopUi.copy(selectedLines = if (selected.isEmpty() || selected == allLines) emptySet() else selected)
+                    } else stopUi
                 }
             )
         }
     }
 
     fun updateRefresh(value: Int) {
-        _state.update { it.copy(refreshMinutes = value) }
+        _state.update {
+            it.copy(refreshMinutes = value.coerceIn(MIN_REFRESH_INTERVAL_MINUTES, MAX_REFRESH_INTERVAL_MINUTES))
+        }
     }
 
     fun updateNotifications(enabled: Boolean) {
@@ -211,8 +272,8 @@ class ConfigViewModel @Inject constructor(
 
 private const val DEFAULT_CONF = "cbaciudad"
 
- /** D2: frecuencia por defecto = mínimo efectivo de WorkManager. */
-const val DEFAULT_REFRESH_MINUTES = 15
+/** D2: intervalo periódico por defecto = mínimo de WorkManager. */
+const val DEFAULT_REFRESH_MINUTES = MIN_REFRESH_INTERVAL_MINUTES
 
  /** Fixture embebido para el fallback offline de líneas (D4). */
 private const val LINES_ASSET = "api-examples/01-lines_routes.json"
@@ -248,4 +309,6 @@ data class StopUiModel(
     val stop: Stop,
     val isSelected: Boolean = false,
     val selectedLines: Set<String> = stop.lines.map { it.id }.toSet()
-)
+) {
+    fun isLineSelected(lineId: String): Boolean = selectedLines.isEmpty() || lineId in selectedLines
+}

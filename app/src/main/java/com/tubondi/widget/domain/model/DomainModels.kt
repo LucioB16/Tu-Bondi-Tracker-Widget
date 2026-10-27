@@ -2,6 +2,9 @@ package com.tubondi.widget.domain.model
 
 import kotlinx.serialization.Serializable
 
+const val MIN_REFRESH_INTERVAL_MINUTES = 15
+const val MAX_REFRESH_INTERVAL_MINUTES = 60
+
 /**
  * Modelo de línea simplificado. id = line_id REAL de la API (string: "42", "C1").
  */
@@ -60,7 +63,7 @@ data class Arrival(
 
 /**
  * Configuración de selección por parada.
- * selectedLines usa los line_id REALES de la API (strings); vacío = todas.
+ * selectedLines usa los line_id REALES de la API (strings); vacío = todas (sin modo "ninguna").
  */
 @Serializable
 data class StopSelection(
@@ -75,7 +78,7 @@ data class StopSelection(
 data class WidgetConfiguration(
     val appWidgetId: Int,
     val selections: List<StopSelection>,
-    val refreshIntervalMinutes: Int = 5,
+    val refreshIntervalMinutes: Int = MIN_REFRESH_INTERVAL_MINUTES,
     val notificationsEnabled: Boolean = true,
     val nearThresholdMinutes: Int = 5,
     val highContrast: Boolean = false,

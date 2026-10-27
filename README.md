@@ -13,7 +13,7 @@ Elegí tus paradas y consultá arribos, destinos y avisos sin abrir el navegador
 
 ## A mano cuando lo necesitás
 
-- **Tus paradas.** Buscá por código, calle o barrio. Al elegir paradas por ruta podés filtrar líneas cuando están disponibles.
+- **Tus paradas.** Buscá por código, calle o barrio; si no aparece, ingresá el código exacto manualmente. Al elegir paradas por ruta podés filtrar líneas cuando están disponibles.
 - **Información de un vistazo.** Consultá tiempo estimado, destino, distancia y avisos publicados por el servicio.
 - **Más de un widget.** Configurá instancias independientes para distintas paradas.
 - **Alertas opcionales.** Activá notificaciones de arribos próximos y definí el umbral de tiempo.
@@ -32,8 +32,8 @@ cd Tu-Bondi-Tracker-Widget
 En Windows usá `gradlew.bat assembleDebug`. El APK de depuración queda en `app/build/outputs/apk/debug/app-debug.apk`; instalalo desde Android Studio o con `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
 
 1. Mantené presionada la pantalla de inicio y agregá **TuBondi Widget** desde el selector de widgets.
-2. Buscá una parada y agregala; si querés, seleccioná líneas específicas.
-3. Ajustá la frecuencia y las alertas, y tocá **Guardar**.
+2. Buscá una parada o agregá su código exacto manualmente; si elegís por ruta, podés seleccionar líneas específicas.
+3. Ajustá la frecuencia automática (15–60 min) y las alertas, y tocá **Guardar**.
 4. Usá **Actualizar** para pedir datos nuevos o tocá el encabezado para abrir la pantalla completa.
 
 <p align="center"><img src="docs/images/configuracion.png" alt="Configuración del widget con buscador de paradas y rutas disponibles" width="280"></p>
@@ -42,7 +42,7 @@ En Windows usá `gradlew.bat assembleDebug`. El APK de depuración queda en `app
 
 El refresco manual consulta el servicio cuando lo solicitás. El refresco periódico usa WorkManager: Android establece un **mínimo de 15 minutos** y puede demorar la ejecución según batería y condiciones del dispositivo. La disponibilidad y la precisión de los arribos dependen de la API de TuBondi.
 
-El selector muestra actualmente las primeras 20 rutas disponibles. El catálogo de paradas está incluido en la app y no se actualiza automáticamente; las líneas y rutas se consultan al abrir la configuración, con un respaldo incluido. Los valores de frecuencia inferiores a 15 minutos no programan ni limitan las actualizaciones manuales.
+El selector permite recorrer todas las rutas disponibles. El catálogo de paradas está incluido en la app y no se actualiza automáticamente; existe una fuente municipal candidata, pero su antigüedad, equivalencia de códigos y condiciones de uso no están verificadas. Hasta entonces, podés ingresar manualmente el código exacto de una parada ausente; agregarlo no consulta el servicio. Las líneas y rutas se consultan al abrir la configuración, con un respaldo incluido.
 
 En Android 13 o posterior, las notificaciones requieren permiso. Si lo denegás, podés habilitarlo desde los ajustes de Android. El canal permite silenciar los avisos durante una hora; la app evita repetir una alerta para la misma parada y línea durante diez minutos.
 

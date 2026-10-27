@@ -43,6 +43,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.tubondi.widget.domain.model.MAX_REFRESH_INTERVAL_MINUTES
+import com.tubondi.widget.domain.model.MIN_REFRESH_INTERVAL_MINUTES
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
@@ -95,6 +98,7 @@ class ConfigActivity : ComponentActivity() {
                     onConfChanged = viewModel::updateConf,
                     onSearchChanged = viewModel::search,
                     onAddStop = viewModel::addCatalogStop,
+                    onAddManualStopCode = viewModel::addManualStopCode,
                     onSave = {
                         viewModel.save {
                             val data = Intent().apply {
@@ -123,6 +127,7 @@ fun ConfigScreen(
     onConfChanged: (String) -> Unit,
     onSearchChanged: (String) -> Unit,
     onAddStop: (CatalogStop) -> Unit,
+    onAddManualStopCode: (String) -> Boolean,
     onSave: () -> Unit
 ) {
     if (state.loading) {
@@ -131,6 +136,7 @@ fun ConfigScreen(
         }
         return
     }
+    var manualStopCode by rememberSaveable { mutableStateOf("") }
     LazyColumn(modifier = Modifier.safeDrawingPadding().padding(16.dp)) {
         item {
             Text(text = state.error ?: "", color = MaterialTheme.colorScheme.error)
@@ -141,7 +147,7 @@ fun ConfigScreen(
                 value = state.searchQuery,
                 onValueChange = onSearchChanged,
                 modifier = Modifier.fillMaxWidth(),
-        placeholder = { Text("Código, calle o barrio") },
+                placeholder = { Text("Código, calle o barrio") },
                 singleLine = true
             )
             state.searchResults.forEach { result ->
@@ -156,7 +162,7 @@ fun ConfigScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = result.name, style = MaterialTheme.typography.bodySmall)
                         Text(
-        text = "${result.code} · ${result.hood ?: ""}",
+                            text = "${result.code} · ${result.hood ?: ""}",
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -168,6 +174,28 @@ fun ConfigScreen(
                     }
                 }
             }
+        }
+        item {
+            Text(text = "Agregar por código", fontWeight = FontWeight.Bold)
+            TextField(
+                value = manualStopCode,
+                onValueChange = { manualStopCode = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Código de parada") },
+                singleLine = true
+            )
+            Button(
+                onClick = {
+                    if (onAddManualStopCode(manualStopCode)) manualStopCode = ""
+                },
+                enabled = manualStopCode.isNotBlank()
+            ) {
+                Text("Agregar código")
+            }
+            Text(
+                text = "Ingresá el código exacto. Agregar no consulta la API; el nombre inicial es provisional.",
+                style = MaterialTheme.typography.labelSmall
+            )
         }
         item {
             if (state.hubs.isNotEmpty()) {
@@ -188,7 +216,7 @@ fun ConfigScreen(
             Text(text = "${state.availableRoutes.size} rutas disponibles", fontWeight = FontWeight.Bold)
             Text(text = "Toca una ruta para cargar sus paradas")
         }
-        items(state.availableRoutes.take(20)) { route ->
+        items(state.availableRoutes) { route ->
             RouteCard(route = route, onClick = { onRouteSelected(route) })
         }
         item {
@@ -252,11 +280,17 @@ fun StopPickerScreen(
 @Composable
 fun LinePickerScreen(stopUi: StopUiModel, onLineToggled: (String, String, Boolean) -> Unit) {
     Column(modifier = Modifier.padding(start = 16.dp)) {
+        if (stopUi.stop.lines.isNotEmpty()) {
+            Text(
+                text = "Todas por defecto; si desmarcas la última, se vuelven a marcar todas.",
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
         stopUi.stop.lines.forEach { line ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(text = line.name)
                 Checkbox(
-                    checked = stopUi.selectedLines.contains(line.id),
+                    checked = stopUi.isLineSelected(line.id),
                     onCheckedChange = { onLineToggled(stopUi.stop.code, line.id, it) }
                 )
             }
@@ -297,11 +331,16 @@ private fun SettingsSection(
         } == true
     }
     Column {
+        Text(text = "Intervalo automático: ${state.refreshMinutes} min")
         Text(
-            text = "Frecuencia: ${state.refreshMinutes} min" +
-        if (state.refreshMinutes < 15) " (mínimo efectivo 15 min)" else ""
+            text = "Mínimo 15 min; Android puede demorarlo. Actualizar a pedido no depende de este intervalo.",
+            style = MaterialTheme.typography.labelSmall
         )
-        Slider(value = state.refreshMinutes.toFloat(), onValueChange = { onRefreshChanged(it.toInt()) }, valueRange = 1f..60f)
+        Slider(
+            value = state.refreshMinutes.toFloat(),
+            onValueChange = { onRefreshChanged(it.toInt()) },
+            valueRange = MIN_REFRESH_INTERVAL_MINUTES.toFloat()..MAX_REFRESH_INTERVAL_MINUTES.toFloat()
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "Notificaciones")
             Switch(checked = state.notificationsEnabled && (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
