@@ -13,11 +13,11 @@ Elegí tus paradas y consultá arribos, destinos y avisos sin abrir el navegador
 
 ## A mano cuando lo necesitás
 
-- **Tus paradas, tus líneas.** Buscá por código, calle o barrio y elegí qué líneas mostrar.
+- **Tus paradas.** Buscá por código, calle o barrio. Al elegir paradas por ruta podés filtrar líneas cuando están disponibles.
 - **Información de un vistazo.** Consultá tiempo estimado, destino, distancia y avisos publicados por el servicio.
 - **Más de un widget.** Configurá instancias independientes para distintas paradas.
 - **Alertas opcionales.** Activá notificaciones de arribos próximos y definí el umbral de tiempo.
-- **Sin conexión.** El buscador utiliza un catálogo incluido y el widget conserva el último dato válido si falla una actualización.
+- **Sin conexión.** El buscador utiliza un catálogo incluido y el widget conserva el último estado si la actualización falla. Un ciclo que supera su presupuesto puede mostrar resultados parciales.
 
 ## Primeros pasos
 
@@ -42,6 +42,8 @@ En Windows usá `gradlew.bat assembleDebug`. El APK de depuración queda en `app
 
 El refresco manual consulta el servicio cuando lo solicitás. El refresco periódico usa WorkManager: Android establece un **mínimo de 15 minutos** y puede demorar la ejecución según batería y condiciones del dispositivo. La disponibilidad y la precisión de los arribos dependen de la API de TuBondi.
 
+El selector muestra actualmente las primeras 20 rutas disponibles. El catálogo de paradas está incluido en la app y no se actualiza automáticamente; las líneas y rutas se consultan al abrir la configuración, con un respaldo incluido. Los valores de frecuencia inferiores a 15 minutos no programan ni limitan las actualizaciones manuales.
+
 En Android 13 o posterior, las notificaciones requieren permiso. Si lo denegás, podés habilitarlo desde los ajustes de Android. El canal permite silenciar los avisos durante una hora; la app evita repetir una alerta para la misma parada y línea durante diez minutos.
 
 ## Desarrollo
@@ -54,7 +56,7 @@ El widget está construido con Kotlin y Jetpack Glance; la configuración y la p
 
 Las pruebas unitarias usan fixtures y respuestas simuladas; no necesitan acceso a la API. Para ejecutar y verificar el widget completo, instalá el APK en un dispositivo o emulador y agregalo al launcher.
 
-La sesión de la API se mantiene en memoria durante las consultas. Las preferencias se guardan localmente y se eliminan al quitar la instancia del widget. No se registran cookies en los logs HTTP configurados por defecto.
+La sesión de la API se mantiene en memoria mientras vive el proceso. Las preferencias se guardan localmente; al quitar un widget la app inicia la limpieza de su configuración y trabajo periódico. No se registran cookies en los logs HTTP configurados por defecto.
 
 ## Referencias
 
