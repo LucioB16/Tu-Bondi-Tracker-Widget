@@ -15,15 +15,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import okhttp3.Call
 import okhttp3.EventListener
-import okhttp3.JavaNetCookieJar
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Test
 import java.io.IOException
-import java.net.CookieManager
-import java.net.CookiePolicy
 import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -119,9 +116,7 @@ class TransitRepositoryTest {
 
             val callCanceled = CountDownLatch(1)
             val cancellationObserved = AtomicBoolean(false)
-            val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
             val okHttpClient = OkHttpClient.Builder()
-                .cookieJar(JavaNetCookieJar(cookieManager))
                 .eventListener(object : EventListener() {
                     override fun callFailed(call: Call, ioe: IOException) {
                         if (call.isCanceled()) {
@@ -135,8 +130,7 @@ class TransitRepositoryTest {
                 .build()
             val httpClient = TuBondiHttpClient(
                 baseUrl = server.url("/").toString().trimEnd('/'),
-                okHttpClient = okHttpClient,
-                cookieManager = cookieManager
+                okHttpClient = okHttpClient
             )
             val repo = TransitRepository(httpClient, Clock.systemUTC())
             val config = WidgetConfiguration(

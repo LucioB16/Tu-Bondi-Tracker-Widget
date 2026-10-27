@@ -7,6 +7,7 @@ import java.io.IOException
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.security.SecureRandom
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -15,6 +16,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.MapSerializer
@@ -43,13 +46,14 @@ import okio.BufferedSink
  * 2. fp aleatorio de 64 hex registrado con POST ?cmd=vista (form fp=, sin conf).
  * 3. Todo POST lleva X-Device-FlakerParam: <fp> + headers de browser y
  *    Content-Type SIN charset.
- * 4. Los POST de catálogo/ruta reintentan una vez tras 408/403/cuerpo vacío.
+ * 4. Los POST de catálogo/ruta reintentan una vez tras fallo de sesión/request.
  *    `proximos_arribos` no repite el POST de una parada durante el mismo ciclo;
- *    invalida la sesión y falla el ciclo, cuyo siguiente refresh vuelve a iniciar.
- *    SerializationException = contenido no parseable -> sin retry.
+ *    invalida solo su contexto y falla el ciclo. SerializationException no reintenta.
+ * 5. Un contexto por `conf`, protegido durante toda la operación; las credenciales
+ *    solo se publican después del 2xx de `cmd=vista` (body vacío permitido).
  *
- * El estado de sesión vive sólo en memoria del proceso (RNF-4): nunca
- * se persiste ni se loguea (HttpLoggingInterceptor BASIC no registra cookies).
+ * Cookies y credenciales viven solo en memoria del proceso (RNF-4): nunca se
+ * persisten ni se loguean (HttpLoggingInterceptor BASIC no registra cookies).
  */
 class TuBondiHttpClient(
     baseUrl: String = DEFAULT_BASE_URL,
@@ -59,12 +63,10 @@ class TuBondiHttpClient(
         coerceInputValues = true
         isLenient = true
     },
-    okHttpClient: OkHttpClient? = null,
-    private val cookieManager: CookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+    okHttpClient: OkHttpClient? = null
 ) {
     private val normalizedBase = if (baseUrl.endsWith('/')) baseUrl.dropLast(1) else baseUrl
-    private val client: OkHttpClient = okHttpClient ?: OkHttpClient.Builder()
-        .cookieJar(JavaNetCookieJar(cookieManager))
+    private val baseClient: OkHttpClient = okHttpClient ?: OkHttpClient.Builder()
         // El re-sesión+retry ante 408 lo maneja executeWithSession (con nueva
         // sesión); el retry transparente de OkHttp repetiría el POST sin
         // re-sesionar y ensuciaría el flujo.
@@ -78,33 +80,53 @@ class TuBondiHttpClient(
     private val webUrl = (normalizedBase + BOOTSTRAP_PATH).toHttpUrl()
     private val cmdUrl = (normalizedBase + CMD).toHttpUrl()
     private val secureRandom = SecureRandom()
+    // ponytail: one context per distinct conf until process death; add idle eviction only if custom-conf volume grows.
+    private val sessions = ConcurrentHashMap<String, SessionState>()
 
-    // Estado de sesión del ciclo (nunca persistido).
-    private var sessionId: String? = null
-    private var sessionOperacion: String? = null
-    private var sessionFp: String? = null
+    private fun sessionFor(conf: String): SessionState = sessions.computeIfAbsent(conf) {
+        newSessionState()
+    }
 
-    suspend fun initializeSession(conf: String = defaultConf): String = withContext(Dispatchers.IO) {
-        val url = webUrl.newBuilder().addQueryParameter("conf", conf).build()
-        val request = Request.Builder().get().url(url).header("User-Agent", BROWSER_UA).build()
-        val response = requestText(request)
-        if (response.first !in 200..299) {
-            throw IOException("Bootstrap failed ${response.first}")
+    private fun newSessionState(): SessionState {
+        val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+        return SessionState(newSessionClient(cookieManager), cookieManager)
+    }
+
+    private fun newSessionClient(cookieManager: CookieManager): OkHttpClient =
+        baseClient.newBuilder()
+            .cookieJar(JavaNetCookieJar(cookieManager))
+            .build()
+
+    private data class SessionCredentials(
+        val id: String,
+        val fingerprint: String
+    )
+
+    private class SessionState(
+        var client: OkHttpClient,
+        var cookieManager: CookieManager
+    ) {
+        val mutex = Mutex()
+        @Volatile var credentials: SessionCredentials? = null
+    }
+
+    suspend fun initializeSession(conf: String = defaultConf): String {
+        val session = sessionFor(conf)
+        return session.mutex.withLock {
+            resetSession(session)
+            try {
+                initializeSessionWith(session, conf)
+            } catch (ex: Exception) {
+                resetSession(session)
+                throw ex
+            }
         }
-        val html = response.second
-        sessionId = extractSessionId()
-            ?: throw IllegalStateException("PHPSESSID missing after bootstrap")
-        sessionOperacion = OPERACION_REGEX.find(html)?.groupValues?.get(1)
-            ?: throw IOException("operacion not found in bootstrap HTML")
-        val fp = newFingerprint()
-        sessionFp = fp
-        registerFingerprint(fp)
-        return@withContext sessionId!!
     }
 
     suspend fun getLinesAndRoutes(conf: String? = null): LinesRoutesResponseDto =
-        executeWithSession {
+        executeWithSession(conf) { session ->
             postForm(
+                session = session,
                 queryCommand = "lineasyrutas",
                 conf = conf,
                 params = emptyMap(),
@@ -113,8 +135,9 @@ class TuBondiHttpClient(
         }
 
     suspend fun selectRouteTrace(rutaId: Int, clienteId: Int, conf: String? = null): RouteSelectionResponseDto =
-        executeWithSession {
+        executeWithSession(conf) { session ->
             postForm(
+                session = session,
                 queryCommand = "seleccionatraza",
                 conf = conf,
                 params = mapOf(
@@ -130,13 +153,14 @@ class TuBondiHttpClient(
         conf: String? = null,
         show80: Boolean = false,
         onlyGps: Map<Int, Boolean>? = null
-    ): ArrivalsResponseDto = executeWithSession(maxAttempts = 1) {
+    ): ArrivalsResponseDto = executeWithSession(conf, maxAttempts = 1) { session ->
         // RNF-1: como máximo un POST de arribos por parada y ciclo. Un 408,
         // 403, cuerpo vacío o error I/O falla el refresh completo; la próxima
         // invocación manual/periódica inicia sesión nueva, sin repetir esta parada.
         val serializer = MapSerializer(String.serializer(), Boolean.serializer())
         val onlyGpsPayload = onlyGps?.entries?.associate { it.key.toString() to it.value }.orEmpty()
         postForm(
+            session = session,
             bodyCommand = "proximos_arribos",
             conf = conf,
             params = mapOf(
@@ -153,8 +177,9 @@ class TuBondiHttpClient(
         clienteId: Int,
         stopCode: String? = null,
         conf: String? = null
-    ): String = executeWithSession {
+    ): String = executeWithSession(conf) { session ->
         postForm(
+            session = session,
             queryCommand = "consultacocheporruta",
             conf = conf,
             params = buildMap {
@@ -169,8 +194,9 @@ class TuBondiHttpClient(
         )
     }
 
-    suspend fun getViewBounds(conf: String? = null): String = executeWithSession {
+    suspend fun getViewBounds(conf: String? = null): String = executeWithSession(conf) { session ->
         postForm(
+            session = session,
             queryCommand = "vista",
             conf = conf,
             params = emptyMap(),
@@ -179,55 +205,84 @@ class TuBondiHttpClient(
     }
 
     val currentSessionId: String?
-        get() = sessionId
+        get() = sessions[defaultConf]?.credentials?.id
 
     /**
-     * Ejecuta una operación con sesión y el máximo de intentos indicado.
-     * Una SerializationException no se reintenta (la respuesta fue 200 pero el
-     * contenido no es el esperado; una sesión nueva no lo arregla).
+     * Una operación completa (bootstrap, fp, POST, retry/reset) se serializa
+     * por `conf`; otros `conf` usan cookies y sesiones independientes.
      */
     private suspend fun <T> executeWithSession(
+        conf: String? = null,
         maxAttempts: Int = 2,
-        block: suspend () -> T
+        block: suspend (SessionState) -> T
     ): T {
         require(maxAttempts > 0)
-        var attempt = 0
-        var lastError: Throwable? = null
-        while (attempt < maxAttempts) {
-            try {
-                if (sessionId.isNullOrEmpty()) initializeSession()
-                return block()
-            } catch (ex: CancellationException) {
-                resetSession()
-                throw ex
-            } catch (ex: SerializationException) {
-                throw ex
-            } catch (ex: IOException) {
-                currentCoroutineContext().ensureActive()
-                lastError = ex
-                resetSession()
-                attempt++
+        val effectiveConf = conf ?: defaultConf
+        val session = sessionFor(effectiveConf)
+        return session.mutex.withLock {
+            var attempt = 0
+            var lastError: Throwable? = null
+            while (attempt < maxAttempts) {
+                try {
+                    if (session.credentials == null) {
+                        initializeSessionWith(session, effectiveConf)
+                    }
+                    return@withLock block(session)
+                } catch (ex: CancellationException) {
+                    resetSession(session)
+                    throw ex
+                } catch (ex: SerializationException) {
+                    throw ex
+                } catch (ex: IOException) {
+                    currentCoroutineContext().ensureActive()
+                    lastError = ex
+                    resetSession(session)
+                    attempt++
+                }
             }
+            throw lastError ?: IllegalStateException("Unknown error calling TuBondi")
         }
-        throw lastError ?: IllegalStateException("Unknown error calling TuBondi")
     }
 
-    private fun resetSession() {
-        sessionId = null
-        sessionOperacion = null
-        sessionFp = null
+    private fun resetSession(session: SessionState) {
+        session.credentials = null
+        val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+        session.cookieManager = cookieManager
+        session.client = newSessionClient(cookieManager)
     }
 
-    private suspend fun registerFingerprint(fp: String) = withContext(Dispatchers.IO) {
-        // Igual que el cosechador de Oma: UA + cookies, sin X-Device-FlakerParam
-        // (todavía no está registrado) y respuesta descartada.
+    private suspend fun initializeSessionWith(session: SessionState, conf: String): String =
+        withContext(Dispatchers.IO) {
+            val url = webUrl.newBuilder().addQueryParameter("conf", conf).build()
+            val request = Request.Builder().get().url(url).header("User-Agent", BROWSER_UA).build()
+            val response = requestText(session, request)
+            if (response.first !in 200..299) {
+                throw IOException("Bootstrap failed ${response.first}")
+            }
+            val sessionId = extractSessionId(session.cookieManager)
+                ?: throw IOException("PHPSESSID missing after bootstrap")
+            if (OPERACION_REGEX.find(response.second) == null) {
+                throw IOException("operacion not found in bootstrap HTML")
+            }
+            val fingerprint = newFingerprint()
+            registerFingerprint(session, fingerprint)
+            session.credentials = SessionCredentials(sessionId, fingerprint)
+            sessionId
+        }
+
+    private suspend fun registerFingerprint(session: SessionState, fp: String) = withContext(Dispatchers.IO) {
+        // El 200 vacío es correcto; 403/408 y cualquier otro status no-2xx
+        // invalidan el handshake antes de enviar el primer comando de negocio.
         val url = cmdUrl.newBuilder().addQueryParameter("cmd", "vista").build()
         val request = Request.Builder()
             .url(url)
             .post(formBodyNoCharset(listOf("fp" to fp)))
             .header("User-Agent", BROWSER_UA)
             .build()
-        requestText(request)
+        val response = requestText(session, request)
+        if (response.first !in 200..299) {
+            throw IOException("Fingerprint registration failed ${response.first}")
+        }
     }
 
     /**
@@ -247,12 +302,15 @@ class TuBondiHttpClient(
     }
 
     private suspend fun <T> postForm(
+        session: SessionState,
         queryCommand: String? = null,
         bodyCommand: String? = null,
         conf: String? = null,
         params: Map<String, String>,
         parse: (String) -> T
     ): T = withContext(Dispatchers.IO) {
+        val fingerprint = session.credentials?.fingerprint
+            ?: throw IOException("Fingerprint missing for session")
         val formPairs = buildList {
             add("conf" to (conf ?: defaultConf))
             if (!bodyCommand.isNullOrEmpty()) add("cmd" to bodyCommand)
@@ -273,10 +331,10 @@ class TuBondiHttpClient(
             .header("Sec-Fetch-Dest", "empty")
             .header("Sec-Fetch-Mode", "cors")
             .header("Sec-Fetch-Site", "same-origin")
-            .header("X-Device-FlakerParam", sessionFp.orEmpty())
+            .header("X-Device-FlakerParam", fingerprint)
             .header("User-Agent", BROWSER_UA)
             .build()
-        val response = requestText(request)
+        val response = requestText(session, request)
         when (response.first) {
             408 -> throw IOException("Session expired (408)")
             403 -> throw IOException("Session expired (403)")
@@ -291,9 +349,9 @@ class TuBondiHttpClient(
         return@withContext parse(payload)
     }
 
-    private suspend fun requestText(request: Request): Pair<Int, String> =
+    private suspend fun requestText(session: SessionState, request: Request): Pair<Int, String> =
         suspendCancellableCoroutine { continuation ->
-            val call = client.newCall(request)
+            val call = session.client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -317,7 +375,7 @@ class TuBondiHttpClient(
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
-    private fun extractSessionId(): String? {
+    private fun extractSessionId(cookieManager: CookieManager): String? {
         return cookieManager.cookieStore.cookies
             .firstOrNull { it.name == "PHPSESSID" }
             ?.value
