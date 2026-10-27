@@ -16,6 +16,7 @@ import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.domain.model.StopSelection
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import java.time.Clock
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -45,11 +46,10 @@ class TransitRepository @Inject constructor(
     suspend fun fetchArrivalsForConfig(config: WidgetConfiguration): List<StopArrivals> {
         val results = mutableListOf<StopArrivals>()
         // Presupuesto de ciclo (paridad Oma: todas las paradas dentro de ~30s).
-        // Chequeo cooperativo antes de cada parada: lo que no llega queda con
-        // el dato anterior (el worker retiene el último estado válido).
+        // Si no se completa el ciclo, el worker conserva el estado anterior.
         val deadline = clock.millis() + CYCLE_BUDGET_MS
         for (selection in config.selections) {
-            if (clock.millis() >= deadline) break
+            if (clock.millis() >= deadline) throw IOException("Refresh cycle budget exceeded")
             val response = client.getArrivals(selection.stop.code, config.conf)
             val arrivals = filterArrivals(response, selection)
             val stop = response.parada?.toDomainStop() ?: selection.stop
@@ -59,6 +59,7 @@ class TransitRepository @Inject constructor(
                 backendMessage = response.err ?: response.notificacion?.mensaje
             )
         }
+        if (clock.millis() >= deadline) throw IOException("Refresh cycle budget exceeded")
         return results
     }
 

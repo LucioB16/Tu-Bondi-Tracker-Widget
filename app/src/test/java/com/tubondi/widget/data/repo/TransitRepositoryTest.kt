@@ -16,6 +16,7 @@ import org.junit.Test
 import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.io.IOException
 
 class TransitRepositoryTest {
     private val client = mockk<TuBondiHttpClient>()
@@ -79,11 +80,7 @@ class TransitRepositoryTest {
             ArrivalsResponseDto()
         }
 
-        val result = repo.fetchArrivalsForConfig(config)
-
-        // La parada 0002 queda fuera del presupuesto (quedará con su dato
-        // anterior: el worker retiene el último estado válido, SA-8).
-        assertThat(result).hasSize(1)
-        assertThat(result.first().stop.code).isEqualTo("0001")
+        val failure = runCatching { repo.fetchArrivalsForConfig(config) }.exceptionOrNull()
+        assertThat(failure).isInstanceOf(IOException::class.java)
     }
 }
