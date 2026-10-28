@@ -27,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -38,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +59,22 @@ import kotlinx.coroutines.delay
  * reloj vivo, arribos agrupados por parada, avisos agregados, refresh
  * manual y acceso a la configuración.
  */
+private val defaultArrivalsColors = lightColorScheme()
+private val highContrastArrivalsColors = lightColorScheme(
+    primary = Color.Black,
+    onPrimary = Color.White,
+    secondary = Color(0xFF4E2600),
+    onSecondary = Color.White,
+    background = Color.White,
+    onBackground = Color.Black,
+    surface = Color.White,
+    onSurface = Color.Black,
+    surfaceVariant = Color.White,
+    onSurfaceVariant = Color(0xFF202124),
+    error = Color(0xFF9B0016),
+    onError = Color.White
+)
+
 @AndroidEntryPoint
 class ArrivalsActivity : ComponentActivity() {
 
@@ -66,8 +85,10 @@ class ArrivalsActivity : ComponentActivity() {
         val appWidgetId = intent?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             ?: AppWidgetManager.INVALID_APPWIDGET_ID
         setContent {
-            MaterialTheme {
-                val state by viewModel.state.collectAsState()
+            val state by viewModel.state.collectAsState()
+            MaterialTheme(
+                colorScheme = if (state.highContrast) highContrastArrivalsColors else defaultArrivalsColors
+            ) {
                 ArrivalsScreen(
                     state = state,
                     onRefresh = viewModel::refresh,
@@ -79,8 +100,8 @@ class ArrivalsActivity : ComponentActivity() {
                         )
                     }
                 )
+                LaunchedEffect(appWidgetId) { viewModel.load(appWidgetId) }
             }
-            LaunchedEffect(appWidgetId) { viewModel.load(appWidgetId) }
         }
     }
 }
@@ -99,7 +120,13 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
     val updatedFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val avisos = remember(state.stops) { state.stops.collectAvisos() }
 
-    Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding()
+            .padding(16.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -119,34 +146,62 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (state.lastUpdated > 0) "actualizado ${updatedFmt.format(Date(state.lastUpdated))}" else "",
+                text = if (state.lastUpdated > 0) {
+                    val prefix = if (state.loading || state.error != null) "Última actualización" else "Actualizado"
+                    "$prefix ${updatedFmt.format(Date(state.lastUpdated))}"
+                } else "",
                 style = MaterialTheme.typography.labelMedium
             )
             Row {
-                OutlinedButton(onClick = onConfig, modifier = Modifier.padding(end = 8.dp)) {
-        Text(text = "⚙ Configurar")
+                OutlinedButton(
+                    onClick = onConfig,
+                    modifier = Modifier.padding(end = 8.dp).semantics {
+                        contentDescription = "Configurar widget"
+                    }
+                ) {
+                    Text(text = "⚙ Configurar")
                 }
-                Button(onClick = onRefresh, enabled = !state.loading) {
-        Text(text = "↻ Actualizar")
+                Button(
+                    onClick = onRefresh,
+                    enabled = !state.loading,
+                    modifier = Modifier.semantics { contentDescription = "Actualizar arribos" }
+                ) {
+                    Text(text = "↻ Actualizar")
                 }
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
 
+        if (state.loading) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp).semantics {
+                        contentDescription = "Actualizando arribos"
+                    }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Actualizando…")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+        state.error?.let { error ->
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { contentDescription = "Error de actualización: $error" }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = onRefresh, enabled = !state.loading) {
+                Text(text = "Reintentar")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
         when {
-            state.loading && state.stops.isEmpty() -> {
-                CircularProgressIndicator()
+            state.stops.isEmpty() && !state.loading && state.error == null -> {
+                Text(text = "Sin datos todavía")
             }
-            state.error != null -> {
- // D5: mensaje genérico para 408 nocturno/sin servicio.
-                Text(text = state.error, color = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onRefresh) { Text(text = "Reintentar") }
-            }
-            state.stops.isEmpty() -> {
-        Text(text = "Sin datos todavía")
-            }
-            else -> {
+            state.stops.isNotEmpty() -> {
                 LazyColumn {
                     state.stops.forEach { stop ->
                         item(key = "header-${stop.stop.code}") {
@@ -164,7 +219,7 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
                             Text(text = "Avisos", fontWeight = FontWeight.Bold)
                             avisos.forEach { aviso ->
                                 Text(
-        text = "⚠ $aviso",
+                                    text = "⚠ $aviso",
                                     color = MaterialTheme.colorScheme.secondary,
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -203,7 +258,7 @@ private fun ArrivalRowFull(arrival: Arrival) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-        text = arrival.etaText.ifBlank { "—" },
+                    text = arrival.etaText.ifBlank { "—" },
                     fontWeight = FontWeight.Bold,
                     color = etaColor(arrival.etaMinutes)
                 )
@@ -211,7 +266,7 @@ private fun ArrivalRowFull(arrival: Arrival) {
                 Text(
                     text = buildString {
                         arrival.distanceKm?.let { append("%.1f km".format(it)) }
-        arrival.operator?.let { if (isNotEmpty()) append(" · $it") }
+                        arrival.operator?.let { if (isNotEmpty()) append(" · $it") }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -235,10 +290,11 @@ private fun colorDot(hex: String?): Color =
         Color(0xFFFFB300)
     }
 
- /** Umbrales de color de Oma (widget.owl:63): ≤ 5 verde, ≤ 15 ámbar, resto neutro. */
+/** Umbrales accesibles: ≤ 5 verde, ≤ 15 ámbar, resto onSurface. */
+@Composable
 private fun etaColor(etaMinutes: Int?): Color = when {
-    etaMinutes == null -> Color(0xFFE0E0E0)
-    etaMinutes <= 5 -> Color(0xFF4CAF50)
-    etaMinutes <= 15 -> Color(0xFFFFC107)
-    else -> Color(0xFFE0E0E0)
+    etaMinutes == null -> MaterialTheme.colorScheme.onSurface
+    etaMinutes <= 5 -> Color(0xFF1B5E20)
+    etaMinutes <= 15 -> Color(0xFF8D4E00)
+    else -> MaterialTheme.colorScheme.onSurface
 }

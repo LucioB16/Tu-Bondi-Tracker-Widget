@@ -50,5 +50,20 @@ class WidgetUiStateTest {
         assertThat(state.errorMessage).isEqualTo("Session expired (408)")
         assertThat(state.degraded).isTrue()
         assertThat(state.highContrast).isTrue()
+        assertThat(state.refreshing).isFalse()
+    }
+
+    @Test
+    fun manualRefreshStatusIsVisibleAndClearedOnCompletion() {
+        val refreshing = WidgetUiState(arrivals = emptyList(), refreshing = true)
+
+        assertThat(refreshing.statusText()).isEqualTo("Actualizando…")
+
+        val succeeded = refreshing.copy(refreshing = false)
+        assertThat(succeeded.statusText()).isNull()
+
+        val failed = WidgetUiState.errorState(refreshing, "Sin conexión", highContrast = false)
+        assertThat(failed.statusText()).isEqualTo("Sin conexión")
+        assertThat(failed.refreshing).isFalse()
     }
 }

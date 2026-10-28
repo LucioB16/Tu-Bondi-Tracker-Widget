@@ -3,11 +3,15 @@ package com.tubondi.widget.ui.arrivals
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.tubondi.widget.data.repo.TransitRepository
 import com.tubondi.widget.domain.friendlyErrorMessage
 import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import com.tubondi.widget.prefs.WidgetPreferences
+import com.tubondi.widget.widget.TransitAppWidget
+import com.tubondi.widget.widget.WidgetStateStorage
+import com.tubondi.widget.widget.WidgetUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -25,7 +29,8 @@ data class ArrivalsUiState(
     val loading: Boolean = false,
     val stops: List<StopArrivals> = emptyList(),
     val lastUpdated: Long = 0L,
-    val error: String? = null
+    val error: String? = null,
+    val highContrast: Boolean = false
 )
 
 @HiltViewModel
@@ -40,13 +45,15 @@ class ArrivalsViewModel @Inject constructor(
 
     fun load(appWidgetId: Int) {
         if (_state.value.appWidgetId == appWidgetId && _state.value.stops.isNotEmpty()) return
-        _state.update { it.copy(loading = true, appWidgetId = appWidgetId) }
+        _state.update { it.copy(loading = true, appWidgetId = appWidgetId, error = null) }
         viewModelScope.launch {
             val config = prefs.readConfiguration(appWidgetId)
             if (config == null) {
                 _state.update { it.copy(loading = false, error = "Configura el widget primero") }
                 return@launch
             }
+            _state.update { it.copy(highContrast = config.highContrast) }
+            restoreCachedWidgetState(appWidgetId, config.highContrast)
             refreshInternal(config)
         }
     }
@@ -60,18 +67,76 @@ class ArrivalsViewModel @Inject constructor(
         }
     }
 
+    private suspend fun restoreCachedWidgetState(appWidgetId: Int, highContrast: Boolean) {
+        try {
+            val glanceId = findGlanceId(appWidgetId) ?: return
+            val cached = WidgetStateStorage.readState(appContext, glanceId)
+            _state.update {
+                it.copy(
+                    stops = cached.arrivals,
+                    lastUpdated = cached.lastUpdatedEpochMillis,
+                    error = cached.errorMessage.takeIf { cached.degraded },
+                    highContrast = highContrast
+                )
+            }
+        } catch (ex: CancellationException) {
+            throw ex
+        } catch (_: Exception) {
+            // A missing/corrupt Glance cache must not prevent the refresh attempt.
+        }
+    }
+
+    private suspend fun findGlanceId(appWidgetId: Int) =
+        GlanceAppWidgetManager(appContext).let { manager ->
+            manager.getGlanceIds(TransitAppWidget::class.java)
+                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+        }
+
+    private suspend fun persistWidgetState(appWidgetId: Int, widgetState: WidgetUiState) {
+        try {
+            val glanceId = findGlanceId(appWidgetId) ?: return
+            WidgetStateStorage.writeState(appContext, glanceId, widgetState)
+            TransitAppWidget().update(appContext, glanceId)
+        } catch (ex: CancellationException) {
+            throw ex
+        } catch (_: Exception) {
+            // The full-screen refresh remains useful if the widget cache is unavailable.
+        }
+    }
+
     private suspend fun refreshInternal(config: WidgetConfiguration) {
-        _state.update { it.copy(loading = true, error = null) }
+        _state.update { it.copy(loading = true, error = null, highContrast = config.highContrast) }
         try {
             val arrivals = repository.fetchArrivalsForConfig(config)
-            _state.update {
-                it.copy(loading = false, stops = arrivals, lastUpdated = System.currentTimeMillis())
-            }
+            val updatedAt = System.currentTimeMillis()
+            _state.update { it.copy(loading = false, stops = arrivals, lastUpdated = updatedAt) }
+            persistWidgetState(
+                config.appWidgetId,
+                WidgetUiState(
+                    arrivals = arrivals,
+                    lastUpdatedEpochMillis = updatedAt,
+                    highContrast = config.highContrast
+                )
+            )
         } catch (ex: CancellationException) {
             throw ex
         } catch (ex: Exception) {
             // D5: mensaje genérico para el 408 nocturno/sin servicio.
-            _state.update { it.copy(loading = false, error = friendlyErrorMessage(ex)) }
+            val message = friendlyErrorMessage(ex)
+            val previous = _state.value
+            _state.update { it.copy(loading = false, error = message) }
+            persistWidgetState(
+                config.appWidgetId,
+                WidgetUiState.errorState(
+                    previous = WidgetUiState(
+                        arrivals = previous.stops,
+                        lastUpdatedEpochMillis = previous.lastUpdated,
+                        highContrast = config.highContrast
+                    ),
+                    errorMessage = message,
+                    highContrast = config.highContrast
+                )
+            )
         }
     }
 }

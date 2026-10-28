@@ -47,45 +47,37 @@ class RefreshWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val widgetId = inputData.getInt(KEY_WIDGET_ID, ALL_WIDGETS)
-        val configs = if (widgetId == ALL_WIDGETS) {
-            prefs.allConfigurations()
-        } else {
-            prefs.readConfiguration(widgetId)?.let { listOf(it) } ?: emptyList()
-        }
-        if (configs.isEmpty()) {
+        val widgetId = inputData.getInt(KEY_WIDGET_ID, INVALID_WIDGET)
+        if (widgetId == INVALID_WIDGET) return Result.success()
+        val config = prefs.readConfiguration(widgetId) ?: return Result.success()
+        val manager = GlanceAppWidgetManager(applicationContext)
+        val glanceId = manager.getGlanceIds(TransitAppWidget::class.java)
+            .firstOrNull { manager.getAppWidgetId(it) == widgetId }
+        if (glanceId == null) {
+            // SA-9: el widget ya no existe -> purgar su config (self-heal).
+            purgeConfig(widgetId)
             return Result.success()
         }
-        val manager = GlanceAppWidgetManager(applicationContext)
-        configs.forEach { config ->
-            val glanceId = manager.getGlanceIds(TransitAppWidget::class.java)
-                .firstOrNull { manager.getAppWidgetId(it) == config.appWidgetId }
-            if (glanceId == null) {
-                // SA-9: el widget ya no existe -> purgar su config (self-heal).
-                purgeConfig(config.appWidgetId)
-                return@forEach
-            }
-            try {
-                val arrivals = repository.fetchArrivalsForConfig(config)
-                val state = WidgetUiState(
-                    arrivals = arrivals,
-                    lastUpdatedEpochMillis = System.currentTimeMillis(),
-                    errorMessage = null,
-                    highContrast = config.highContrast
-                )
-                WidgetStateStorage.writeState(applicationContext, glanceId, state)
-                TransitAppWidget().update(applicationContext, glanceId)
-                notifier.dispatch(config, arrivals)
-            } catch (ex: CancellationException) {
-                throw ex
-            } catch (ex: Exception) {
- // SA-8: retener el último dato válido; el error se anota sin
- // borrar los arribos previos. D5: mensaje genérico para 408 nocturno.
-                val previous = WidgetStateStorage.readState(applicationContext, glanceId)
-                val state = WidgetUiState.errorState(previous, friendlyErrorMessage(ex), config.highContrast)
-                WidgetStateStorage.writeState(applicationContext, glanceId, state)
-                TransitAppWidget().update(applicationContext, glanceId)
-            }
+        try {
+            val arrivals = repository.fetchArrivalsForConfig(config)
+            val state = WidgetUiState(
+                arrivals = arrivals,
+                lastUpdatedEpochMillis = System.currentTimeMillis(),
+                errorMessage = null,
+                highContrast = config.highContrast
+            )
+            WidgetStateStorage.writeState(applicationContext, glanceId, state)
+            TransitAppWidget().update(applicationContext, glanceId)
+            notifier.dispatch(config, arrivals)
+        } catch (ex: CancellationException) {
+            throw ex
+        } catch (ex: Exception) {
+            // SA-8: retener el último dato válido; el error se anota sin
+            // borrar los arribos previos. D5: mensaje genérico para 408 nocturno.
+            val previous = WidgetStateStorage.readState(applicationContext, glanceId)
+            val state = WidgetUiState.errorState(previous, friendlyErrorMessage(ex), config.highContrast)
+            WidgetStateStorage.writeState(applicationContext, glanceId, state)
+            TransitAppWidget().update(applicationContext, glanceId)
         }
         return Result.success()
     }
@@ -98,8 +90,10 @@ class RefreshWorker @AssistedInject constructor(
 
     companion object {
         private const val KEY_WIDGET_ID = "widget_id"
-        private const val ALL_WIDGETS = -1
+        private const val INVALID_WIDGET = -1
         private const val UNIQUE_WORK = "transit_periodic"
+
+        private fun widgetWorkTag(appWidgetId: Int) = "transit_widget_$appWidgetId"
 
         fun enqueuePeriodic(context: Context, config: WidgetConfiguration) {
             val interval = config.refreshIntervalMinutes.coerceIn(
@@ -109,6 +103,7 @@ class RefreshWorker @AssistedInject constructor(
             val request = PeriodicWorkRequestBuilder<RefreshWorker>(interval.toLong(), TimeUnit.MINUTES)
                 .setInputData(workDataOf(KEY_WIDGET_ID to config.appWidgetId))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .addTag(widgetWorkTag(config.appWidgetId))
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 "$UNIQUE_WORK-${config.appWidgetId}",
@@ -121,27 +116,23 @@ class RefreshWorker @AssistedInject constructor(
             val request = OneTimeWorkRequestBuilder<RefreshWorker>()
                 .setInputData(workDataOf(KEY_WIDGET_ID to appWidgetId))
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .build()
-            WorkManager.getInstance(context).enqueue(request)
-        }
-
-        fun enqueueAll(context: Context) {
-            val request = OneTimeWorkRequestBuilder<RefreshWorker>()
-                .setInputData(workDataOf(KEY_WIDGET_ID to ALL_WIDGETS))
+                .addTag(widgetWorkTag(appWidgetId))
                 .build()
             WorkManager.getInstance(context).enqueue(request)
         }
 
         /**
- * SA-9: al eliminar un widget se cancela su work periódico y se
-         * purga su config de DataStore (fire-and-forget en IO).
+         * SA-9: cancela trabajo acotado a cada ID y purga su configuración.
          */
         fun cleanup(context: Context, appWidgetIds: IntArray) {
             val wm = WorkManager.getInstance(context)
             val appContext = context.applicationContext
             appWidgetIds.forEach { id ->
-                wm.cancelUniqueWork("$UNIQUE_WORK-$id")
+                val cancelPeriodic = wm.cancelUniqueWork("$UNIQUE_WORK-$id")
+                val cancelTagged = wm.cancelAllWorkByTag(widgetWorkTag(id))
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    runCatching { cancelPeriodic.result.get(10, TimeUnit.SECONDS) }
+                    runCatching { cancelTagged.result.get(10, TimeUnit.SECONDS) }
                     WidgetPreferences(appContext.dataStore).removeConfiguration(id)
                 }
             }

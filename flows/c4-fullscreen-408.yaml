@@ -1,0 +1,13 @@
+# Preconditions: home page showing widget ID 4 with AA50 and a successful cached response.
+# Set loopback stub to mode=408 and delay=8000 before starting; restore success/0 afterward.
+appId: com.google.android.apps.nexuslauncher
+---
+- assertVisible: "Parada QA AA50"
+- tapOn: "Próximos arribos TuBondi"
+- assertVisible: "Sin servicio ahora"
+- assertVisible: "Parada QA AA50"
+- assertVisible: "4min"
+- tapOn: "Actualizar arribos"
+- assertVisible: "Sin servicio ahora"
+- assertVisible: "Parada QA AA50"
+- assertVisible: "4min"

@@ -52,4 +52,25 @@ class WidgetPreferencesTest {
 
         assertThat(stored).isEqualTo(config)
     }
+
+    @Test
+    fun deletingOneWidgetConfigurationPreservesTheOther() = runTest {
+        val first = WidgetConfiguration(
+            appWidgetId = 41,
+            selections = listOf(StopSelection(Stop(code = "AA50", name = "Primera")))
+        )
+        val second = WidgetConfiguration(
+            appWidgetId = 42,
+            selections = listOf(StopSelection(Stop(code = "BB17", name = "Segunda"))),
+            refreshIntervalMinutes = 30,
+            highContrast = true
+        )
+        prefs.saveConfiguration(first)
+        prefs.saveConfiguration(second)
+
+        prefs.removeConfiguration(first.appWidgetId)
+
+        assertThat(prefs.readConfiguration(first.appWidgetId)).isNull()
+        assertThat(prefs.readConfiguration(second.appWidgetId)).isEqualTo(second)
+    }
 }

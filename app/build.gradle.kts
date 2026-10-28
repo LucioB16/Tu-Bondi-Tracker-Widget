@@ -8,6 +8,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val debugApiBaseUrl = providers.gradleProperty("tubondiApiBaseUrl")
+    .orElse("https://micronauta4.dnsalias.net")
+    .get()
+
 android {
     namespace = "com.tubondi.widget"
     compileSdk = 35
@@ -24,7 +28,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "TUBONDI_API_BASE_URL", "\"$debugApiBaseUrl\"")
+        }
         release {
+            buildConfigField("String", "TUBONDI_API_BASE_URL", "\"https://micronauta4.dnsalias.net\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

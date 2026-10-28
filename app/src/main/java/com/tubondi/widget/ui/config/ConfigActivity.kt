@@ -48,6 +48,9 @@ import com.tubondi.widget.domain.model.MAX_REFRESH_INTERVAL_MINUTES
 import com.tubondi.widget.domain.model.MIN_REFRESH_INTERVAL_MINUTES
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -268,7 +271,14 @@ fun StopPickerScreen(
                     Text(text = stopUi.stop.name)
                     Text(text = stopUi.stop.code)
                 }
-                Checkbox(checked = stopUi.isSelected, onCheckedChange = { onStopToggled(stopUi.stop.code, it) })
+                Checkbox(
+                    checked = stopUi.isSelected,
+                    onCheckedChange = { onStopToggled(stopUi.stop.code, it) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Seleccionar parada ${stopUi.stop.name}, código ${stopUi.stop.code}"
+                        stateDescription = if (stopUi.isSelected) "Seleccionada" else "No seleccionada"
+                    }
+                )
             }
             if (stopUi.isSelected) {
                 LinePickerScreen(stopUi, onLineToggled)
@@ -291,7 +301,11 @@ fun LinePickerScreen(stopUi: StopUiModel, onLineToggled: (String, String, Boolea
                 Text(text = line.name)
                 Checkbox(
                     checked = stopUi.isLineSelected(line.id),
-                    onCheckedChange = { onLineToggled(stopUi.stop.code, line.id, it) }
+                    onCheckedChange = { onLineToggled(stopUi.stop.code, line.id, it) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Línea ${line.name} en parada ${stopUi.stop.code}"
+                        stateDescription = if (stopUi.isLineSelected(line.id)) "Seleccionada" else "No seleccionada"
+                    }
                 )
             }
         }
@@ -330,6 +344,9 @@ private fun SettingsSection(
             !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.POST_NOTIFICATIONS)
         } == true
     }
+    val hasNotificationPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    val notificationsChecked = state.notificationsEnabled && hasNotificationPermission
     Column {
         Text(text = "Intervalo automático: ${state.refreshMinutes} min")
         Text(
@@ -339,23 +356,31 @@ private fun SettingsSection(
         Slider(
             value = state.refreshMinutes.toFloat(),
             onValueChange = { onRefreshChanged(it.toInt()) },
-            valueRange = MIN_REFRESH_INTERVAL_MINUTES.toFloat()..MAX_REFRESH_INTERVAL_MINUTES.toFloat()
+            valueRange = MIN_REFRESH_INTERVAL_MINUTES.toFloat()..MAX_REFRESH_INTERVAL_MINUTES.toFloat(),
+            modifier = Modifier.semantics {
+                contentDescription = "Intervalo de actualización automática"
+                stateDescription = "${state.refreshMinutes} minutos"
+            }
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "Notificaciones")
-            Switch(checked = state.notificationsEnabled && (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED), onCheckedChange = { enabled ->
-                when {
-                    !enabled -> onNotificationsChanged(false)
-                    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-                        PackageManager.PERMISSION_GRANTED -> onNotificationsChanged(true)
-                    else -> {
-                        notificationsBlocked = false
-                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            Switch(
+                checked = notificationsChecked,
+                onCheckedChange = { enabled ->
+                    when {
+                        !enabled -> onNotificationsChanged(false)
+                        hasNotificationPermission -> onNotificationsChanged(true)
+                        else -> {
+                            notificationsBlocked = false
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
                     }
+                },
+                modifier = Modifier.semantics {
+                    contentDescription = "Notificaciones de arribos"
+                    stateDescription = if (notificationsChecked) "Activadas" else "Desactivadas"
                 }
-            })
+            )
         }
         if (notificationsBlocked) {
             Text(
@@ -373,10 +398,25 @@ private fun SettingsSection(
             }
         }
         Text(text = "Umbral: ${state.thresholdMinutes} min")
-        Slider(value = state.thresholdMinutes.toFloat(), onValueChange = { onThresholdChanged(it.toInt()) }, valueRange = 1f..30f)
+        Slider(
+            value = state.thresholdMinutes.toFloat(),
+            onValueChange = { onThresholdChanged(it.toInt()) },
+            valueRange = 1f..30f,
+            modifier = Modifier.semantics {
+                contentDescription = "Umbral de notificación"
+                stateDescription = "${state.thresholdMinutes} minutos"
+            }
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "Alto contraste")
-            Switch(checked = state.highContrast, onCheckedChange = onHighContrast)
+            Switch(
+                checked = state.highContrast,
+                onCheckedChange = onHighContrast,
+                modifier = Modifier.semantics {
+                    contentDescription = "Alto contraste"
+                    stateDescription = if (state.highContrast) "Activado" else "Desactivado"
+                }
+            )
         }
         Text(text = "Conf")
         TextField(

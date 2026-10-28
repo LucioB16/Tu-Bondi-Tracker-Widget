@@ -18,6 +18,7 @@ Elegí tus paradas y consultá arribos, destinos y avisos sin abrir el navegador
 - **Más de un widget.** Configurá instancias independientes para distintas paradas.
 - **Alertas opcionales.** Activá notificaciones de arribos próximos y definí el umbral de tiempo.
 - **Sin conexión.** El buscador utiliza un catálogo incluido y el widget conserva todos los datos del último refresh exitoso si una actualización falla o supera su presupuesto; muestra el motivo y la hora de esos datos.
+- **Estados y accesibilidad.** La actualización manual informa “Actualizando…”; si falla, tanto el widget como la pantalla completa retienen los arribos y la hora del último éxito y ofrecen reintentar. Alto contraste se aplica a ambas vistas y los controles exponen etiquetas y estados semánticos para lectores de pantalla.
 
 ## Primeros pasos
 
@@ -56,7 +57,13 @@ El widget está construido con Kotlin y Jetpack Glance; la configuración y la p
 
 Las pruebas unitarias usan fixtures y respuestas simuladas; no necesitan acceso a la API. Para ejecutar y verificar el widget completo, instalá el APK en un dispositivo o emulador y agregalo al launcher.
 
-La sesión de la API se mantiene en memoria mientras vive el proceso. Las preferencias se guardan localmente; al quitar un widget la app inicia la limpieza de su configuración y trabajo periódico. No se registran cookies en los logs HTTP configurados por defecto.
+El build debug usa la URL HTTPS de producción por defecto. Para QA aislado, iniciá `python tools/mock_tubondi_api.py --mode success`, conectá el AVD con `adb reverse tcp:8765 tcp:8765` y compilá debug con `-PtubondiApiBaseUrl=http://127.0.0.1:8765`; el stub escucha exclusivamente en loopback. La variante release fija la URL HTTPS del servicio.
+
+Los flows `c4-configure-*` parten de una instancia existente (ID 4 o 5) visible en launcher y abren su configuración mediante el control accesible `Configurar widget`. Antes de guardar en modo `success`, registrá `arrivals` y `responses408` con `Invoke-RestMethod 'http://127.0.0.1:8765/__control/stats'`; luego verificá que `arrivals` aumente y `responses408` no cambie antes de asumir que la caché quedó lista. Los contadores son acumulativos; para repetir QA no exijas `responses408=0` si ya se probó un error.
+
+Para `*-408`, con la caché lista, fijá modo y demora con `Invoke-RestMethod 'http://127.0.0.1:8765/__control/mode?value=408'` y `Invoke-RestMethod 'http://127.0.0.1:8765/__control/delay?ms=8000'`; ejecutá `maestro test --udid emulator-5564 flows/c4-fullscreen-408.yaml flows/c4-launcher-408.yaml`; después restaurá `mode?value=success` y `delay?ms=0`.
+
+La sesión de la API se mantiene en memoria mientras vive el proceso. Las preferencias se guardan localmente; al quitar una instancia se cancelan sus trabajos asociados y se purga su configuración sin afectar otros widgets. No se registran cookies en los logs HTTP configurados por defecto.
 
 ## Referencias
 

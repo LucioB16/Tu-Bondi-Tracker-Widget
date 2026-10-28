@@ -1,0 +1,17 @@
+# Preconditions: widget ID 4 is visible on the launcher; stub is in success mode.
+# Saving enqueues a per-widget refresh and populates the local test cache.
+appId: com.google.android.apps.nexuslauncher
+---
+- assertVisible: "Configurar widget"
+- tapOn: "Configurar widget"
+- assertVisible: "Agregar por código"
+- tapOn: "Código de parada"
+- inputText: "AA50"
+- tapOn: "Agregar código"
+- scrollUntilVisible:
+    element:
+      text: "Guardar"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "AA50"
+- tapOn: "Guardar"

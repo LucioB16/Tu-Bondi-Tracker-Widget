@@ -7,9 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -36,15 +34,6 @@ class WidgetPreferences @Inject constructor(
 
     suspend fun removeConfiguration(appWidgetId: Int) {
         dataStore.edit { prefs -> prefs.remove(keyFor(appWidgetId)) }
-    }
-
-    suspend fun allConfigurations(): List<WidgetConfiguration> {
-        val prefs = dataStore.data.first()
-        return prefs.asMap()
-            .filterKeys { it.name.startsWith(PREFIX) }
-            .values
-            .mapNotNull { it as? String }
-            .map { json.decodeFromString<WidgetConfiguration>(it) }
     }
 
     private fun keyFor(appWidgetId: Int) = stringPreferencesKey("${PREFIX}${appWidgetId}")

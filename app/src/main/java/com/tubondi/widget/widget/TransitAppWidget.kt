@@ -100,7 +100,7 @@ private fun warn() = ColorProvider(day = Color(0xFFFFAB91), night = Color(0xFFFF
 
 private fun stopHeaderColor() = ColorProvider(day = Color(0xFFBBDEFB), night = Color(0xFFBBDEFB))
 
- /** Umbrales de color de Oma (widget.owl:63): ≤ 5 verde, ≤ 15 ámbar, resto neutro. */
+/** Umbrales de color de Oma (widget.owl:63): ≤ 5 verde, ≤ 15 ámbar, resto neutro. */
 private fun etaColor(etaMinutes: Int?) = when {
     etaMinutes == null -> ColorProvider(day = Color(0xFFE0E0E0), night = Color(0xFFE0E0E0))
     etaMinutes <= 5 -> ColorProvider(day = Color(0xFF4CAF50), night = Color(0xFF4CAF50))
@@ -127,15 +127,16 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent, arrivalsIn
         when {
             state.arrivals.isEmpty() -> {
                 Text(
-                    text = state.errorMessage ?: "Sin datos",
-                    style = TextStyle(color = if (state.degraded) muted() else onBackground())
+                    text = state.statusText() ?: "Sin datos",
+                    style = TextStyle(color = if (state.degraded && !state.refreshing) warn() else onBackground())
                 )
             }
             else -> {
-                if (state.degraded) {
+                state.statusText()?.let { status ->
+                    val isError = state.degraded && !state.refreshing
                     Text(
-        text = "⚠ ${state.errorMessage ?: "último refresh falló"}",
-                        style = TextStyle(color = warn(), fontSize = 12.sp),
+                        text = if (isError) "⚠ $status" else status,
+                        style = TextStyle(color = if (isError) warn() else muted(), fontSize = 12.sp),
                         maxLines = 1
                     )
                 }
@@ -155,6 +156,8 @@ private fun WidgetContent(state: WidgetUiState, configIntent: Intent, arrivalsIn
 @Composable
 private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent: Intent) {
     val context = LocalContext.current
+    val refreshLabel = state.arrivals.firstOrNull()?.stop?.name
+        ?.let { "Actualizar arribos para $it" } ?: "Actualizar arribos"
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
@@ -168,7 +171,7 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent
             )
             if (state.lastUpdatedEpochMillis > 0) {
                 val formatted = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(state.lastUpdatedEpochMillis))
-                val label = if (state.degraded) {
+                val label = if (state.degraded || state.refreshing) {
                     "última $formatted"
                 } else {
                     "Actualizado $formatted"
@@ -183,7 +186,7 @@ private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent
         )
         androidx.glance.Button(
             text = context.getString(R.string.action_refresh),
-            modifier = GlanceModifier.semantics { contentDescription = "Actualizar arribos" },
+            modifier = GlanceModifier.semantics { contentDescription = refreshLabel },
             onClick = actionRunCallback<RefreshActionCallback>()
         )
     }

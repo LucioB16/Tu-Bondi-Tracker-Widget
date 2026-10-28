@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.tubondi.widget.BuildConfig
 import com.tubondi.widget.data.remote.TuBondiHttpClient
 import com.tubondi.widget.data.repo.TransitRepository
 import com.tubondi.widget.prefs.WidgetPreferences
@@ -28,7 +29,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(): TuBondiHttpClient = TuBondiHttpClient()
+    fun provideHttpClient(): TuBondiHttpClient = TuBondiHttpClient(baseUrl = BuildConfig.TUBONDI_API_BASE_URL)
 
     @Provides
     @Singleton

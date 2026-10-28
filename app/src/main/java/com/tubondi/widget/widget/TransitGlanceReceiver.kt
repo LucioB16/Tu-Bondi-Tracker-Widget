@@ -12,14 +12,9 @@ import com.tubondi.widget.work.RefreshWorker
 class TransitGlanceReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TransitAppWidget()
 
-    override fun onEnabled(context: Context) {
-        super.onEnabled(context)
-        RefreshWorker.enqueueAll(context)
-    }
-
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        RefreshWorker.enqueueAll(context)
+        appWidgetIds.forEach { RefreshWorker.enqueueOneTime(context, it) }
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {

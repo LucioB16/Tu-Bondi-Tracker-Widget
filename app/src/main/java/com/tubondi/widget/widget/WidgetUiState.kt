@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
  * Estado serializado que Glance consume.
  * degraded=true significa que el ÚLTIMO refresh falló: se retienen los
  * arribos anteriores y lastUpdatedEpochMillis queda concretado a esa última
- * actualización exitosa (SA-8).
+ * actualización exitosa (SA-8). refreshing=true es un estado transitorio
+ * de feedback manual y no altera el timestamp ni marca degradación.
  */
 @Serializable
 data class WidgetUiState(
@@ -15,8 +16,15 @@ data class WidgetUiState(
     val lastUpdatedEpochMillis: Long = 0L,
     val errorMessage: String? = null,
     val highContrast: Boolean = false,
-    val degraded: Boolean = false
+    val degraded: Boolean = false,
+    val refreshing: Boolean = false
 ) {
+    fun statusText(): String? = when {
+        refreshing -> "Actualizando…"
+        degraded -> errorMessage ?: "Sin conexión con TuBondi"
+        else -> null
+    }
+
     companion object {
         /**
          * Estado tras un refresh fallido: retiene el último dato válido
@@ -32,7 +40,8 @@ data class WidgetUiState(
             lastUpdatedEpochMillis = previous.lastUpdatedEpochMillis,
             errorMessage = errorMessage,
             highContrast = highContrast,
-            degraded = true
+            degraded = true,
+            refreshing = false
         )
     }
 }

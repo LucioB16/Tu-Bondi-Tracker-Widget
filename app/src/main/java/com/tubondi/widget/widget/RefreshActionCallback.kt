@@ -16,7 +16,11 @@ class RefreshActionCallback : ActionCallback {
         // Feedback inmediato: "Actualizando…" reteniendo los arribos previos
         // (el worker sobrescribe al terminar, con éxito o con error).
         val previous = WidgetStateStorage.readState(context, glanceId)
-        WidgetStateStorage.writeState(context, glanceId, previous.copy(errorMessage = "Actualizando…"))
+        WidgetStateStorage.writeState(
+            context,
+            glanceId,
+            previous.copy(errorMessage = null, refreshing = true)
+        )
         TransitAppWidget().update(context, glanceId)
         RefreshWorker.enqueueOneTime(context, appWidgetId)
     }
