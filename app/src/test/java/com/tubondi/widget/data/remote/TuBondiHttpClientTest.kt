@@ -491,13 +491,23 @@ class TuBondiHttpClientTest {
             okHttpClient = http
         )
 
-        val result = withTimeoutOrNull(1000) { client.getLinesAndRoutes() }
+        // Keep this coroutine off runBlocking's event loop: takeRequest below
+        // blocks while waiting for each request, and the client must resume
+        // between bootstrap, fingerprint registration, and the retry.
+        val operation = async(Dispatchers.IO) { client.getLinesAndRoutes() }
+        val requests = try {
+            (0 until 4).map { server.takeRequest(5, TimeUnit.SECONDS) }
+        } finally {
+            // Cancel only after the fourth request is in flight; a fixed short
+            // timeout could fire before OkHttp starts under a busy test host.
+            operation.cancelAndJoin()
+        }
 
-        assertThat(result).isNull()
+        assertThat(requests).hasSize(4)
+        assertThat(requests.all { it != null }).isTrue()
         assertTrue("El bootstrap de re-sesión debe cerrar al cancelarlo; observado=${callFailure.get()}", canceledCall.await(2, TimeUnit.SECONDS))
         assertThat(callWasCanceled.get()).isTrue()
         assertThat(server.requestCount).isEqualTo(4)
-        repeat(4) { assertThat(server.takeRequest(1, TimeUnit.SECONDS)).isNotNull() }
         assertThat(client.currentSessionId).isNull()
     }
 

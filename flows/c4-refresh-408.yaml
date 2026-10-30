@@ -1,0 +1,12 @@
+# Preconditions: Arribos is open with a successful cached response.
+# Set the loopback-only stub to mode=408 and delay=10000 immediately before this flow;
+# restore success/0 afterward. The delay keeps the manual-refresh state observable.
+appId: com.tubondi.widget
+---
+- assertVisible: "Arribos por parada"
+- tapOn: "Actualizar"
+- assertVisible: "Actualizando; la hora corresponde al último éxito."
+- assertVisible: "No se pudo actualizar: Sin servicio ahora. Conservamos el último dato válido."
+- assertVisible: "Última actualización correcta"
+- assertVisible: "Av. Duarte Quirós 1717–1728"
+- assertVisible: "Línea 10"

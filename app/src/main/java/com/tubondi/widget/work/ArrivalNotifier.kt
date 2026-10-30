@@ -11,6 +11,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.tubondi.widget.R
 import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.domain.model.WidgetConfiguration
+import com.tubondi.widget.domain.displayName
 import com.tubondi.widget.ui.config.ConfigActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -40,19 +41,19 @@ class ArrivalNotifier @Inject constructor(
         arrivals.forEach { stopArrivals ->
             stopArrivals.arrivals
                 .filter { (it.etaMinutes ?: Int.MAX_VALUE) <= threshold }
-                .forEach { arrival ->
+                .forEach arrivalLoop@{ arrival ->
                     val key = "${config.appWidgetId}-${arrival.stopCode}-${arrival.lineName}"
                     val lastTime = recents[key] ?: 0L
-                    if (now - lastTime < DEDUP_WINDOW_MS) return@forEach
+                    if (now - lastTime < DEDUP_WINDOW_MS) return@arrivalLoop
                     recents[key] = now
                     val content = if (arrival.etaMinutes == 0) {
-                        context.getString(R.string.notification_body_arriving, arrival.lineName, stopArrivals.stop.name)
+                        context.getString(R.string.notification_body_arriving, arrival.lineName, stopArrivals.stop.displayName())
                     } else {
                         context.getString(
                             R.string.notification_body_template,
                             arrival.lineName,
                             arrival.etaMinutes,
-                            stopArrivals.stop.name
+                            stopArrivals.stop.displayName()
                         )
                     }
                     val builder = NotificationCompat.Builder(context, CHANNEL_ID)

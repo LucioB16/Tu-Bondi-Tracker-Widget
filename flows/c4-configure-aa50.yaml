@@ -1,17 +1,20 @@
-# Preconditions: widget ID 4 is visible on the launcher; stub is in success mode.
-# Saving enqueues a per-widget refresh and populates the local test cache.
+# The configured widget is visible on the launcher and already contains Duarte Quirós 1717–1728.
+# Searches by descriptive address only; A911 is an internal ID and must stay hidden.
 appId: com.google.android.apps.nexuslauncher
 ---
-- assertVisible: "Configurar widget"
-- tapOn: "Configurar widget"
-- assertVisible: "Agregar por código"
-- tapOn: "Código de parada"
-- inputText: "AA50"
-- tapOn: "Agregar código"
-- scrollUntilVisible:
-    element:
-      text: "Guardar"
-    direction: DOWN
-    timeout: 30000
-- assertVisible: "AA50"
-- tapOn: "Guardar"
+- pressKey: BACK
+- pressKey: BACK
+- pressKey: HOME
+- assertVisible: "Abrir arribos de Tu Bondi"
+- tapOn: "Abrir arribos de Tu Bondi"
+- assertVisible: "Arribos por parada"
+- tapOn: "Ajustes"
+- assertVisible: "Calle, barrio o nombre"
+- tapOn: "Calle, barrio o nombre"
+- inputText: "Duarte Quirós 1717"
+- pressKey: BACK # Expose the result row above the keyboard before asserting its selected state.
+- assertVisible: "Av. Duarte Quirós 1717–1728"
+- assertVisible: "Agregada"
+- assertNotVisible: "A911"
+- pressKey: BACK
+- assertVisible: "Arribos por parada"

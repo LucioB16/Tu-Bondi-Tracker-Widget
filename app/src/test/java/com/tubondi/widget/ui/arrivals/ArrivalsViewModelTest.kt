@@ -111,6 +111,85 @@ class ArrivalsViewModelTest {
     }
 
     @Test
+    fun missingWidgetConfigurationIsPresentedAsAnEmptyState() = runTest {
+        coEvery { prefs.readConfiguration(44) } returns null
+
+        val viewModel = ArrivalsViewModel(
+            repository,
+            prefs,
+            ApplicationProvider.getApplicationContext()
+        )
+        viewModel.load(44)
+        advanceUntilIdle()
+
+        assertThat(viewModel.state.value.loading).isFalse()
+        assertThat(viewModel.state.value.stops).isEmpty()
+        assertThat(viewModel.state.value.lastUpdated).isEqualTo(0L)
+        assertThat(viewModel.state.value.error).isNull()
+        assertThat(viewModel.state.value.highContrast).isFalse()
+        coVerify(exactly = 0) { repository.fetchArrivalsForConfig(any()) }
+    }
+
+    @Test
+    fun resumeSyncUsesSuccessfulWidgetRefreshAndClearsPreviousError() = runTest {
+        val config = WidgetConfiguration(
+            appWidgetId = 45,
+            selections = listOf(StopSelection(Stop("AA50", "Parada de prueba")))
+        )
+        val previousArrivals = listOf(
+            StopArrivals(
+                stop = config.selections.single().stop,
+                arrivals = listOf(Arrival(stopCode = "AA50", lineName = "10", etaText = "9min"))
+            )
+        )
+        val refreshedArrivals = listOf(
+            StopArrivals(
+                stop = config.selections.single().stop,
+                arrivals = listOf(Arrival(stopCode = "AA50", lineName = "10", etaText = "4min"))
+            )
+        )
+        val glanceId = mockk<GlanceId>()
+        coEvery { prefs.readConfiguration(45) } returns config
+        mockkConstructor(GlanceAppWidgetManager::class)
+        mockkConstructor(TransitAppWidget::class)
+        coEvery { anyConstructed<TransitAppWidget>().update(any(), glanceId) } returns Unit
+        coEvery {
+            anyConstructed<GlanceAppWidgetManager>().getGlanceIds(TransitAppWidget::class.java)
+        } returns listOf(glanceId)
+        every { anyConstructed<GlanceAppWidgetManager>().getAppWidgetId(glanceId) } returns 45
+        mockkObject(WidgetStateStorage)
+        coEvery { WidgetStateStorage.readState(any(), glanceId) } returns WidgetUiState(
+            arrivals = previousArrivals,
+            lastUpdatedEpochMillis = 123L,
+            errorMessage = "Sin servicio ahora",
+            degraded = true
+        )
+        coEvery { WidgetStateStorage.writeState(any(), glanceId, any()) } returns Unit
+        coEvery { repository.fetchArrivalsForConfig(any()) } throws IOException("offline")
+
+        val viewModel = ArrivalsViewModel(
+            repository,
+            prefs,
+            ApplicationProvider.getApplicationContext()
+        )
+        viewModel.load(45)
+        advanceUntilIdle()
+        assertThat(viewModel.state.value.error).isNotNull()
+
+        coEvery { WidgetStateStorage.readState(any(), glanceId) } returns WidgetUiState(
+            arrivals = refreshedArrivals,
+            lastUpdatedEpochMillis = 456L
+        )
+        viewModel.syncFromWidgetCache(45)
+        advanceUntilIdle()
+
+        assertThat(viewModel.state.value.stops).isEqualTo(refreshedArrivals)
+        assertThat(viewModel.state.value.lastUpdated).isEqualTo(456L)
+        assertThat(viewModel.state.value.error).isNull()
+        coVerify(exactly = 2) { WidgetStateStorage.readState(any(), glanceId) }
+    }
+
+    @Test
     fun successfulFullScreenRefreshUpdatesTheWidgetCache() = runTest {
         val config = WidgetConfiguration(
             appWidgetId = 43,

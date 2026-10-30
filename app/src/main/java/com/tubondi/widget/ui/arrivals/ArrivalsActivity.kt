@@ -9,25 +9,32 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,66 +44,54 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tubondi.widget.domain.ArrivalFreshness
 import com.tubondi.widget.domain.HtmlText
+import com.tubondi.widget.domain.displayName
 import com.tubondi.widget.domain.model.Arrival
+import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.domain.model.collectAvisos
 import com.tubondi.widget.ui.config.ConfigActivity
+import com.tubondi.widget.ui.theme.TuBondiTheme
+import com.tubondi.widget.ui.theme.TuBondiSpacing
 import dagger.hilt.android.AndroidEntryPoint
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-/**
- * Pantalla completa de arribos (D1, paridad Oma widget.owl:108-160):
- * reloj vivo, arribos agrupados por parada, avisos agregados, refresh
- * manual y acceso a la configuración.
- */
-private val defaultArrivalsColors = lightColorScheme()
-private val highContrastArrivalsColors = lightColorScheme(
-    primary = Color.Black,
-    onPrimary = Color.White,
-    secondary = Color(0xFF4E2600),
-    onSecondary = Color.White,
-    background = Color.White,
-    onBackground = Color.Black,
-    surface = Color.White,
-    onSurface = Color.Black,
-    surfaceVariant = Color.White,
-    onSurfaceVariant = Color(0xFF202124),
-    error = Color(0xFF9B0016),
-    onError = Color.White
-)
-
 @AndroidEntryPoint
 class ArrivalsActivity : ComponentActivity() {
 
     private val viewModel: ArrivalsViewModel by viewModels()
+    private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val appWidgetId = intent?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
-            ?: AppWidgetManager.INVALID_APPWIDGET_ID
+        appWidgetId = intent?.getIntExtra(
+            AppWidgetManager.EXTRA_APPWIDGET_ID,
+            AppWidgetManager.INVALID_APPWIDGET_ID
+        ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
         setContent {
             val state by viewModel.state.collectAsState()
-            MaterialTheme(
-                colorScheme = if (state.highContrast) highContrastArrivalsColors else defaultArrivalsColors
-            ) {
+            TuBondiTheme(highContrast = state.highContrast) {
                 ArrivalsScreen(
                     state = state,
                     onRefresh = viewModel::refresh,
                     onConfig = {
                         startActivity(
-                            Intent(this, ConfigActivity::class.java).apply {
-                                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                            }
+                            Intent(this, ConfigActivity::class.java).putExtra(
+                                AppWidgetManager.EXTRA_APPWIDGET_ID,
+                                appWidgetId
+                            )
                         )
                     }
                 )
@@ -104,126 +99,144 @@ class ArrivalsActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            viewModel.syncFromWidgetCache(appWidgetId)
+        }
+    }
 }
 
 @Composable
 fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -> Unit) {
-    // Reloj vivo (Oma actualiza el reloj cada 30s; en pantalla, cada segundo).
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(state.lastUpdated, state.loading) {
+        now = System.currentTimeMillis()
         while (true) {
-            delay(1000)
+            val wait = ArrivalFreshness.MINUTE_MILLIS - (System.currentTimeMillis() % ArrivalFreshness.MINUTE_MILLIS)
+            delay(wait)
             now = System.currentTimeMillis()
         }
     }
-    val clockFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
-    val updatedFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val avisos = remember(state.stops) { state.stops.collectAvisos() }
+    val stale = ArrivalFreshness.isStale(state.lastUpdated, now)
+    val age = ArrivalFreshness.ageLabel(state.lastUpdated, now)
+    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val notices = remember(state.stops) { state.stops.collectAvisos() }
+    val narrowHeader = LocalConfiguration.current.screenWidthDp < 360
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .safeDrawingPadding()
-            .padding(16.dp)
+            .padding(horizontal = TuBondiSpacing.content, vertical = 10.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = "Tu Bondi", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                text = clockFmt.format(Date(now)),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = if (state.lastUpdated > 0) {
-                    val prefix = if (state.loading || state.error != null) "Última actualización" else "Actualizado"
-                    "$prefix ${updatedFmt.format(Date(state.lastUpdated))}"
-                } else "",
-                style = MaterialTheme.typography.labelMedium
-            )
-            Row {
-                OutlinedButton(
-                    onClick = onConfig,
-                    modifier = Modifier.padding(end = 8.dp).semantics {
-                        contentDescription = "Configurar widget"
-                    }
-                ) {
-                    Text(text = "⚙ Configurar")
+        if (narrowHeader) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column {
+                    Text(
+                        "Tu Bondi",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text("Arribos por parada", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Button(
-                    onClick = onRefresh,
-                    enabled = !state.loading,
-                    modifier = Modifier.semantics { contentDescription = "Actualizar arribos" }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(text = "↻ Actualizar")
+                    OutlinedButton(
+                        onClick = onConfig,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) {
+                        Text("Ajustes", maxLines = 1)
+                    }
+                    Button(
+                        onClick = onRefresh,
+                        enabled = !state.loading,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) {
+                        Text("Actualizar", maxLines = 1)
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        "Tu Bondi",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text("Arribos por parada", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedButton(onClick = onConfig, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Ajustes")
+                }
+                Spacer(Modifier.width(6.dp))
+                Button(onClick = onRefresh, enabled = !state.loading, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Actualizar")
                 }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
+        FreshnessCard(
+            lastUpdated = state.lastUpdated,
+            formattedTime = if (state.lastUpdated > 0L) timeFormatter.format(Date(state.lastUpdated)) else null,
+            age = age,
+            stale = stale,
+            loading = state.loading,
+            error = state.error
+        )
         if (state.loading) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp).semantics {
-                        contentDescription = "Actualizando arribos"
-                    }
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = "Actualizando…")
-            }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        state.error?.let { error ->
-            Text(
-                text = error,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.semantics { contentDescription = "Error de actualización: $error" }
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(onClick = onRefresh, enabled = !state.loading) {
-                Text(text = "Reintentar")
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
+        Spacer(Modifier.height(10.dp))
 
         when {
-            state.stops.isEmpty() && !state.loading && state.error == null -> {
-                Text(text = "Sin datos todavía")
+            state.stops.isEmpty() && state.loading -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(Modifier.semantics { contentDescription = "Buscando arribos" })
+                        Spacer(Modifier.height(12.dp))
+                        Text("Buscando arribos")
+                    }
+                }
             }
-            state.stops.isNotEmpty() -> {
-                LazyColumn {
-                    state.stops.forEach { stop ->
-                        item(key = "header-${stop.stop.code}") {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                            Text(text = stop.stop.name, fontWeight = FontWeight.Bold)
-                            Text(text = stop.stop.code, style = MaterialTheme.typography.labelSmall)
-                        }
-                        items(stop.arrivals.size) { index ->
-                            ArrivalRowFull(stop.arrivals[index])
+            state.stops.isEmpty() -> {
+                EmptyArrivals(onConfig = onConfig, onRefresh = onRefresh, error = state.error)
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)
+                ) {
+                    items(state.stops, key = { "stop-${it.stop.code}" }) { stop ->
+                        StopArrivalsCard(stop = stop, stale = stale, lastUpdated = state.lastUpdated, now = now)
+                    }
+                    if (notices.isNotEmpty()) {
+                        item(key = "notices") {
+                            NoticesCard(notices)
                         }
                     }
-                    if (avisos.isNotEmpty()) {
-                        item(key = "avisos") {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                            Text(text = "Avisos", fontWeight = FontWeight.Bold)
-                            avisos.forEach { aviso ->
-                                Text(
-                                    text = "⚠ $aviso",
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
+                    if (stale) {
+                        item(key = "stale-endnote") {
+                            Text(
+                                "Las ETA reaparecen después de completar una actualización exitosa.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
                         }
                     }
                 }
@@ -233,68 +246,204 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
 }
 
 @Composable
-private fun ArrivalRowFull(arrival: Arrival) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun FreshnessCard(
+    lastUpdated: Long,
+    formattedTime: String?,
+    age: String?,
+    stale: Boolean,
+    loading: Boolean,
+    error: String?
+) {
+    val background = when {
+        stale && lastUpdated > 0L -> MaterialTheme.colorScheme.tertiaryContainer
+        error != null && lastUpdated == 0L -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val foreground = when {
+        stale && lastUpdated > 0L -> MaterialTheme.colorScheme.onTertiaryContainer
+        error != null && lastUpdated == 0L -> MaterialTheme.colorScheme.onErrorContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+        color = background,
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 1.dp
     ) {
-        Box(
-            modifier = Modifier
-                .padding(end = 8.dp)
-                .size(10.dp)
-                .background(colorDot(arrival.color), RoundedCornerShape(5.dp))
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = arrival.lineName, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = arrival.routeDescription ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = arrival.etaText.ifBlank { "—" },
-                    fontWeight = FontWeight.Bold,
-                    color = etaColor(arrival.etaMinutes)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = buildString {
-                        arrival.distanceKm?.let { append("%.1f km".format(it)) }
-                        arrival.operator?.let { if (isNotEmpty()) append(" · $it") }
+                    text = when {
+                        lastUpdated == 0L -> "Todavía no hay una actualización correcta"
+                        stale -> "Datos desactualizados"
+                        else -> "Última actualización correcta"
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    modifier = Modifier.weight(1f),
+                    color = foreground,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleSmall
+                )
+                if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+            if (formattedTime != null && age != null) {
+                Text("$formattedTime · $age", color = foreground, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (stale && lastUpdated > 0L) {
+                Text(
+                    "Ocultamos los horarios porque podrían no coincidir con el servicio actual.",
+                    color = foreground,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
-            HtmlText.notice(arrival.notification)?.let { notif ->
+            if (error != null) {
                 Text(
-                    text = "⚠ $notif",
-                    color = MaterialTheme.colorScheme.secondary,
-                    style = MaterialTheme.typography.bodySmall
+                    if (lastUpdated > 0L) "No se pudo actualizar: $error. Conservamos el último dato válido."
+                    else error,
+                    color = if (lastUpdated == 0L) foreground else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
                 )
+            }
+            if (loading && lastUpdated > 0L) {
+                Text("Actualizando; la hora corresponde al último éxito.", color = foreground, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
 }
 
-private fun colorDot(hex: String?): Color =
-    try {
-        Color(android.graphics.Color.parseColor(hex ?: "#ffb300"))
-    } catch (ex: IllegalArgumentException) {
-        Color(0xFFFFB300)
-    }
-
-/** Umbrales accesibles: ≤ 5 verde, ≤ 15 ámbar, resto onSurface. */
 @Composable
-private fun etaColor(etaMinutes: Int?): Color = when {
-    etaMinutes == null -> MaterialTheme.colorScheme.onSurface
-    etaMinutes <= 5 -> Color(0xFF1B5E20)
-    etaMinutes <= 15 -> Color(0xFF8D4E00)
-    else -> MaterialTheme.colorScheme.onSurface
+private fun EmptyArrivals(onConfig: () -> Unit, onRefresh: () -> Unit, error: String?) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val viewportHeight = maxHeight
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = viewportHeight)
+                    .padding(vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    if (error == null) "Sin paradas configuradas" else "No se pudieron cargar los arribos",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (error == null) "Agregá lugares para ver sus colectivos." else "Revisá la conexión e intentá de nuevo.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(14.dp))
+                if (error == null) {
+                    Button(onClick = onConfig, modifier = Modifier.heightIn(min = 48.dp)) { Text("Configurar widget") }
+                } else {
+                    OutlinedButton(onClick = onRefresh, modifier = Modifier.heightIn(min = 48.dp)) { Text("Reintentar") }
+                    Spacer(Modifier.height(6.dp))
+                    androidx.compose.material3.TextButton(onClick = onConfig) { Text("Abrir ajustes") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StopArrivalsCard(stop: StopArrivals, stale: Boolean, lastUpdated: Long, now: Long) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(TuBondiSpacing.largeCardRadius)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column {
+                Text(stop.stop.displayName(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                stop.stop.hood?.takeIf { stop.stop.displayName() != "Parada en $it" }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (stop.arrivals.isEmpty()) {
+                Text("Sin arribos para mostrar", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                stop.arrivals.forEachIndexed { index, arrival ->
+                    if (index > 0) HorizontalDivider()
+                    ArrivalRow(arrival, stale, lastUpdated, now)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArrivalRow(arrival: Arrival, stale: Boolean, lastUpdated: Long, now: Long) {
+    val eta = if (stale) "Horario oculto" else ArrivalFreshness.etaLabel(arrival, lastUpdated, now)
+    val etaSurface = when {
+        stale || eta == "Estimación vencida" -> MaterialTheme.colorScheme.tertiaryContainer
+        arrival.etaMinutes != null && arrival.etaMinutes <= 5 -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.primaryContainer
+    }
+    val etaTextColor = when {
+        stale || eta == "Estimación vencida" -> MaterialTheme.colorScheme.onTertiaryContainer
+        arrival.etaMinutes != null && arrival.etaMinutes <= 5 -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onPrimaryContainer
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f).padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Línea ${arrival.lineName}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            arrival.routeDescription?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            val details = buildString {
+                arrival.distanceKm?.let { append("%.1f km".format(Locale.getDefault(), it)) }
+                arrival.operator?.takeIf { it.isNotBlank() }?.let { operator ->
+                    if (isNotEmpty()) append(" · ")
+                    append(operator)
+                }
+            }
+            if (details.isNotEmpty()) {
+                Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Surface(color = etaSurface, shape = RoundedCornerShape(14.dp)) {
+            Text(
+                eta,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                color = etaTextColor,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoticesCard(notices: List<String>) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(TuBondiSpacing.cardRadius)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Avisos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(50)) {
+                    Text(
+                        notices.size.toString(),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+            notices.forEachIndexed { index, notice ->
+                if (index > 0) HorizontalDivider()
+                Row(verticalAlignment = Alignment.Top) {
+                    Text("!", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(8.dp))
+                    Text(HtmlText.stripEntities(notice), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
 }

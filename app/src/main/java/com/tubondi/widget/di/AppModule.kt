@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.tubondi.widget.BuildConfig
+import com.tubondi.widget.data.catalog.CatalogRepository
 import com.tubondi.widget.data.remote.TuBondiHttpClient
 import com.tubondi.widget.data.repo.TransitRepository
 import com.tubondi.widget.prefs.WidgetPreferences
@@ -33,8 +34,11 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideRepository(client: TuBondiHttpClient, clock: Clock): TransitRepository =
-        TransitRepository(client, clock)
+    fun provideRepository(
+        client: TuBondiHttpClient,
+        clock: Clock,
+        catalogRepository: CatalogRepository
+    ): TransitRepository = TransitRepository(client, clock, catalogRepository)
 
     @Provides
     @Singleton

@@ -1,13 +1,17 @@
-# Preconditions: home page showing widget ID 4 with AA50 and a successful cached response.
-# Set loopback stub to mode=408 and delay=8000 before starting; restore success/0 afterward.
+# Preconditions: a configured widget with a successful cached response is visible on the launcher.
+# Set the loopback-only stub to mode=408 and delay=8000 before starting; restore success/0 afterward.
+# Opening Arribos performs the refresh; this flow checks the resulting error and retained data.
 appId: com.google.android.apps.nexuslauncher
 ---
-- assertVisible: "Parada QA AA50"
-- tapOn: "Próximos arribos TuBondi"
-- assertVisible: "Sin servicio ahora"
-- assertVisible: "Parada QA AA50"
-- assertVisible: "4min"
-- tapOn: "Actualizar arribos"
-- assertVisible: "Sin servicio ahora"
-- assertVisible: "Parada QA AA50"
-- assertVisible: "4min"
+- pressKey: BACK
+- pressKey: HOME
+- assertVisible: "Abrir arribos de Tu Bondi"
+- tapOn: "Abrir arribos de Tu Bondi"
+- assertVisible: "Arribos por parada"
+- assertVisible: "Av. Duarte Quirós 1717–1728"
+- extendedWaitUntil:
+    visible: "No se pudo actualizar: Sin servicio ahora. Conservamos el último dato válido."
+    timeout: 30000
+- assertVisible: "Última actualización correcta"
+- assertVisible: "Av. Duarte Quirós 1717–1728"
+- assertVisible: "Línea 10"

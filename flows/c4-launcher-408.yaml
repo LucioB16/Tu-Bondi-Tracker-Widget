@@ -1,11 +1,13 @@
-# Preconditions: widget ID 4 already has AA50 and a successful cached stub response.
-# Before this flow, GET mode=408 and delay=8000 from the loopback stub; restore success/0 afterward.
-# The delay keeps the transient progress text visible for the assertion below.
+# Preconditions: a configured widget with a successful cached response is visible on the launcher.
+# Set loopback-only stub mode=408 and delay=8000 before starting; restore success/0 afterward.
 appId: com.google.android.apps.nexuslauncher
 ---
-- assertVisible: "Parada QA AA50"
-- tapOn: "Actualizar arribos para Parada QA AA50"
-- assertVisible: "Actualizando…"
-- assertVisible: "Sin servicio ahora"
-- assertVisible: "Parada QA AA50"
-- assertVisible: "4min"
+- pressKey: HOME
+- assertVisible: "Abrir arribos de Tu Bondi"
+- assertVisible: "Av. Duarte Quirós 1717–1728"
+- tapOn: "Actualizar arribos"
+- extendedWaitUntil:
+    visible: "No pudimos actualizar; conservamos el último dato válido."
+    timeout: 30000
+- assertVisible: "Av. Duarte Quirós 1717–1728"
+- assertVisible: "10"

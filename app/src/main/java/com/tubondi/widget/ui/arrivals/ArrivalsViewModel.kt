@@ -49,12 +49,56 @@ class ArrivalsViewModel @Inject constructor(
         viewModelScope.launch {
             val config = prefs.readConfiguration(appWidgetId)
             if (config == null) {
-                _state.update { it.copy(loading = false, error = "Configura el widget primero") }
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        stops = emptyList(),
+                        lastUpdated = 0L,
+                        error = null,
+                        highContrast = false
+                    )
+                }
                 return@launch
             }
             _state.update { it.copy(highContrast = config.highContrast) }
             restoreCachedWidgetState(appWidgetId, config.highContrast)
             refreshInternal(config)
+        }
+    }
+
+    /**
+     * A launcher refresh can update Glance while this Activity stays in the
+     * task back stack. Re-read that durable state on resume so Arribos does
+     * not keep presenting an error or timestamp from before the launcher work.
+     */
+    fun syncFromWidgetCache(appWidgetId: Int) {
+        if (_state.value.appWidgetId != appWidgetId || _state.value.loading) return
+        viewModelScope.launch {
+            if (_state.value.appWidgetId != appWidgetId || _state.value.loading) return@launch
+            try {
+                val glanceId = findGlanceId(appWidgetId) ?: return@launch
+                val cached = WidgetStateStorage.readState(appContext, glanceId)
+                _state.update { current ->
+                    if (
+                        current.appWidgetId != appWidgetId ||
+                        current.loading ||
+                        cached.lastUpdatedEpochMillis < current.lastUpdated
+                    ) {
+                        current
+                    } else {
+                        current.copy(
+                            stops = cached.arrivals,
+                            lastUpdated = cached.lastUpdatedEpochMillis,
+                            error = cached.errorMessage.takeIf { cached.degraded },
+                            highContrast = cached.highContrast
+                        )
+                    }
+                }
+            } catch (ex: CancellationException) {
+                throw ex
+            } catch (_: Exception) {
+                // A transient cache read failure must not hide the current screen.
+            }
         }
     }
 

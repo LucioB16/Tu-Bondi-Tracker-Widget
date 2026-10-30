@@ -13,15 +13,8 @@ import com.tubondi.widget.work.RefreshWorker
 class RefreshActionCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        // Feedback inmediato: "Actualizando…" reteniendo los arribos previos
-        // (el worker sobrescribe al terminar, con éxito o con error).
-        val previous = WidgetStateStorage.readState(context, glanceId)
-        WidgetStateStorage.writeState(
-            context,
-            glanceId,
-            previous.copy(errorMessage = null, refreshing = true)
-        )
-        TransitAppWidget().update(context, glanceId)
+        // Let the worker publish one final Glance render. An intermediate render
+        // can race the result and leave a stale progress label in the launcher.
         RefreshWorker.enqueueOneTime(context, appWidgetId)
     }
 }

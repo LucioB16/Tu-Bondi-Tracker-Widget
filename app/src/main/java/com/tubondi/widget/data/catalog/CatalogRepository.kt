@@ -2,10 +2,13 @@ package com.tubondi.widget.data.catalog
 
 import android.content.Context
 import com.tubondi.widget.domain.model.Stop
+import com.tubondi.widget.domain.displayName
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.text.Normalizer
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -20,7 +23,11 @@ data class CatalogStop(
     val name: String,
     val hood: String? = null,
     val n: Int? = null
-)
+) {
+    fun displayName(): String = CatalogRepository.displayName(this)
+
+    fun displayHood(): String? = CatalogRepository.displayHood(this)
+}
 
 @Serializable
 data class StopCatalog(
@@ -49,31 +56,93 @@ class CatalogRepository @Inject constructor(
     }
 
     /**
-     * Buscador (paridad Oma widget.owl:44): code/name/barrio case-insensitive,
+     * Buscador por nombre/barrio, sin consultar ni mostrar códigos internos;
      * hasta 25 resultados. Query vacía = sin resultados.
      */
     fun search(query: String, limit: Int = SEARCH_LIMIT): List<CatalogStop> {
         if (query.isBlank()) return emptyList()
-        val q = query.trim().lowercase()
+        val q = normalizeForSearch(query)
+        if (q.isBlank()) return emptyList()
         return load().stops.filter {
-            it.code.lowercase().contains(q) ||
-                it.name.lowercase().contains(q) ||
-                (it.hood?.lowercase()?.contains(q) ?: false)
+            normalizeForSearch(it.name).contains(q) ||
+                normalizeForSearch(it.hood.orEmpty()).contains(q)
         }.take(limit)
     }
 
     fun hubs(): List<String> = load().hubs
 
+    /** Hub IDs stay internal; consumers render the descriptive catalog record. */
+    fun hubStops(): List<CatalogStop> {
+        val byCode = load().stops.associateBy { it.code }
+        return load().hubs.map { code ->
+            byCode[code] ?: CatalogStop(code = code, name = "")
+        }
+    }
+
     fun toStop(catalogStop: CatalogStop): Stop = Stop(
         code = catalogStop.code,
-        name = catalogStop.name,
+        name = catalogDisplayName(catalogStop),
         latitude = null,
         longitude = null,
-        lines = emptyList()
+        lines = emptyList(),
+        hood = catalogStop.hood?.let(::formatPlaceName)
     )
+
+    fun resolveStop(stop: Stop): Stop {
+        val catalogStop = load().stops.firstOrNull { it.code == stop.code } ?: return stop
+        val catalog = toStop(catalogStop)
+        return stop.copy(
+            name = catalog.name.ifBlank { stop.name },
+            hood = catalog.hood ?: stop.hood,
+            customName = stop.customName,
+            lines = stop.lines.ifEmpty { catalog.lines }
+        )
+    }
 
     companion object {
         const val CATALOG_ASSET = "tubondi-catalogo.json"
         const val SEARCH_LIMIT = 25
+
+        fun displayName(catalogStop: CatalogStop): String = Stop(
+            code = catalogStop.code,
+            name = catalogDisplayName(catalogStop),
+            hood = displayHood(catalogStop)
+        ).displayName()
+
+        fun displayHood(catalogStop: CatalogStop): String? = catalogStop.hood?.let(::formatPlaceName)
+
+        private fun catalogDisplayName(catalogStop: CatalogStop): String {
+            val name = formatPlaceName(catalogStop.name)
+            val incompleteQualifier = name.contains('(') && !name.contains(')')
+            // The offline source truncates some labels at its field limit. For
+            // example, "... de la Torr" has a recognized neighborhood but no
+            // complete street name, so fall back to that location instead.
+            val incompleteStreet = name.endsWith("Torr", ignoreCase = true)
+            return if (incompleteQualifier || incompleteStreet) "" else name
+        }
+
+        private val locale = Locale("es", "AR")
+        private val word = Regex("[\\p{L}]+")
+
+        private fun normalizeForSearch(value: String): String = Normalizer
+            .normalize(value.lowercase(locale), Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+
+        private fun formatPlaceName(value: String): String {
+            val trimmed = value.trim()
+            if (trimmed.isEmpty()) return ""
+            val lower = trimmed.lowercase(locale)
+                .replace("quiros", "quirós")
+                .replace("hipolito", "hipólito")
+                .replace("cordoba", "córdoba")
+                .replace("lopez", "lópez")
+                .replace("republica", "república")
+                .replace("pediatrico", "pediátrico")
+                .replace("maipu", "maipú")
+            val titleCase = word.replace(lower) { match ->
+                match.value.replaceFirstChar { it.titlecase(locale) }
+            }
+            return titleCase.replace(Regex("(?<=\\d)-(?=\\d)"), "–")
+        }
     }
 }

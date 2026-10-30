@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuites>
+  <testsuite name="Test Suite" device="TuBondi_Test_API36" tests="1" failures="0" time="19.064" timestamp="2026-10-30T01:06:32">
+    <testcase id="c4-fullscreen-408" name="c4-fullscreen-408" classname="c4-fullscreen-408" file="flows/c4-fullscreen-408.yaml" time="19.042" timestamp="2026-10-30T01:06:32" status="SUCCESS"/>
+  </testsuite>
+</testsuites>

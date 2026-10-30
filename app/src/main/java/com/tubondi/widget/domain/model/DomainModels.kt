@@ -25,7 +25,9 @@ data class Stop(
     val name: String,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val lines: List<Line> = emptyList()
+    val lines: List<Line> = emptyList(),
+    val hood: String? = null,
+    val customName: String? = null
 )
 
 /**

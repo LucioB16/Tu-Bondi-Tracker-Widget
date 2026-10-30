@@ -12,6 +12,17 @@ val debugApiBaseUrl = providers.gradleProperty("tubondiApiBaseUrl")
     .orElse("https://micronauta4.dnsalias.net")
     .get()
 
+val releaseSigningValues = listOf(
+    providers.environmentVariable("TUBONDI_RELEASE_STORE_FILE").orNull,
+    providers.environmentVariable("TUBONDI_RELEASE_STORE_PASSWORD").orNull,
+    providers.environmentVariable("TUBONDI_RELEASE_KEY_ALIAS").orNull,
+    providers.environmentVariable("TUBONDI_RELEASE_KEY_PASSWORD").orNull
+)
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+require(hasReleaseSigning || releaseSigningValues.all { it.isNullOrBlank() }) {
+    "Set all TUBONDI_RELEASE_* environment variables to sign a release APK."
+}
+
 android {
     namespace = "com.tubondi.widget"
     compileSdk = 35
@@ -20,11 +31,22 @@ android {
         applicationId = "com.tubondi.widget"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    if (hasReleaseSigning) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseSigningValues[0]!!)
+                storePassword = releaseSigningValues[1]
+                keyAlias = releaseSigningValues[2]
+                keyPassword = releaseSigningValues[3]
+            }
+        }
     }
 
     buildTypes {
@@ -33,6 +55,9 @@ android {
         }
         release {
             buildConfigField("String", "TUBONDI_API_BASE_URL", "\"https://micronauta4.dnsalias.net\"")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

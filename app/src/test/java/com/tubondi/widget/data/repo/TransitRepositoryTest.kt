@@ -1,6 +1,7 @@
 package com.tubondi.widget.data.repo
 
 import com.google.common.truth.Truth.assertThat
+import com.tubondi.widget.data.catalog.CatalogRepository
 import com.tubondi.widget.data.remote.TuBondiHttpClient
 import com.tubondi.widget.data.remote.dto.ArrivalDto
 import com.tubondi.widget.data.remote.dto.ArrivalsResponseDto
@@ -10,6 +11,7 @@ import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.StopSelection
 import com.tubondi.widget.domain.model.WidgetConfiguration
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -30,7 +32,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class TransitRepositoryTest {
     private val client = mockk<TuBondiHttpClient>()
-    private val repository = TransitRepository(client, Clock.systemUTC())
+    private val catalogRepository = mockk<CatalogRepository> {
+        every { resolveStop(any()) } answers { firstArg() }
+    }
+    private val repository = TransitRepository(client, Clock.systemUTC(), catalogRepository)
 
     @Test
     fun filtersArrivalsBySelectedLines() = runTest {
@@ -94,7 +99,7 @@ class TransitRepositoryTest {
             override fun withZone(zone: ZoneId?): Clock = this
             override fun instant(): java.time.Instant = java.time.Instant.ofEpochMilli(millis())
         }
-        val repo = TransitRepository(client, fakeClock)
+        val repo = TransitRepository(client, fakeClock, catalogRepository)
         val config = WidgetConfiguration(
             appWidgetId = 7,
             selections = listOf(
@@ -151,7 +156,7 @@ class TransitRepositoryTest {
                 baseUrl = server.url("/").toString().trimEnd('/'),
                 okHttpClient = okHttpClient
             )
-            val repo = TransitRepository(httpClient, Clock.systemUTC())
+            val repo = TransitRepository(httpClient, Clock.systemUTC(), catalogRepository)
             val config = WidgetConfiguration(
                 appWidgetId = 7,
                 selections = listOf(

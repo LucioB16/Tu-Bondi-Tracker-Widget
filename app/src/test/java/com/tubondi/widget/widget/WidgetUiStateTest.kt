@@ -12,6 +12,34 @@ import org.junit.Test
  */
 class WidgetUiStateTest {
     @Test
+    fun widgetRowsAdaptToSystemFontScale() {
+        assertThat(widgetArrivalRowLimit(compact = true, medium = false, fontScale = 1.5f)).isEqualTo(1)
+        assertThat(widgetArrivalRowLimit(compact = false, medium = true, fontScale = 1.3f)).isEqualTo(1)
+        assertThat(widgetArrivalRowLimit(compact = false, medium = false, fontScale = 1.3f)).isEqualTo(2)
+        assertThat(widgetArrivalRowLimit(compact = false, medium = false, fontScale = 1.0f)).isEqualTo(4)
+    }
+
+    @Test
+    fun widgetPriorityCoversSoonestStopsBeforeAddingMoreRowsFromOneStop() {
+        val state = WidgetUiState(
+            arrivals = listOf(
+                stopGroup("1", 9, 20),
+                stopGroup("2", 5),
+                stopGroup("3", 2)
+            )
+        )
+
+        val medium = state.prioritizedArrivals(maxRows = 2)
+        assertThat(medium.map { it.stop.code }).containsExactly("3", "2").inOrder()
+        assertThat(medium.flatMap { it.arrivals }.map { it.etaMinutes }).containsExactly(2, 5).inOrder()
+
+        val wide = state.prioritizedArrivals(maxRows = 4)
+        assertThat(wide.sumOf { it.arrivals.size }).isEqualTo(4)
+        assertThat(wide.first { it.stop.code == "1" }.arrivals.map { it.etaMinutes })
+            .containsExactly(9, 20).inOrder()
+    }
+
+    @Test
     fun errorStateRetainsPreviousArrivals() {
         val previous = WidgetUiState(
             arrivals = listOf(
@@ -50,20 +78,10 @@ class WidgetUiStateTest {
         assertThat(state.errorMessage).isEqualTo("Session expired (408)")
         assertThat(state.degraded).isTrue()
         assertThat(state.highContrast).isTrue()
-        assertThat(state.refreshing).isFalse()
     }
 
-    @Test
-    fun manualRefreshStatusIsVisibleAndClearedOnCompletion() {
-        val refreshing = WidgetUiState(arrivals = emptyList(), refreshing = true)
-
-        assertThat(refreshing.statusText()).isEqualTo("Actualizando…")
-
-        val succeeded = refreshing.copy(refreshing = false)
-        assertThat(succeeded.statusText()).isNull()
-
-        val failed = WidgetUiState.errorState(refreshing, "Sin conexión", highContrast = false)
-        assertThat(failed.statusText()).isEqualTo("Sin conexión")
-        assertThat(failed.refreshing).isFalse()
-    }
+    private fun stopGroup(code: String, vararg eta: Int) = StopArrivals(
+        Stop(code, "Parada de prueba $code"),
+        eta.map { value -> Arrival(stopCode = code, lineName = "Línea", etaMinutes = value, etaText = "${value}min") }
+    )
 }

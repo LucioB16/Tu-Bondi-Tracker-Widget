@@ -92,7 +92,52 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200)
             return
         if parsed.path.endswith("/usuario/urbano2_cmd.php") and query_command == "lineasyrutas":
-            self._send(200, b'{"lineas":[],"grupos":[],"clientes":[]}', "application/json")
+            payload = {
+                "lineas": [
+                    {
+                        "linea_id": "10",
+                        "linea_nombre": "10",
+                        "color": "#0E627C",
+                        "cliente": 1,
+                        "rutas": [{"ruta_id": "10", "ruta_nombre": "Centro · prueba local"}],
+                    },
+                    {
+                        "linea_id": "40",
+                        "linea_nombre": "40",
+                        "color": "#146E68",
+                        "cliente": 1,
+                        "rutas": [{"ruta_id": "40", "ruta_nombre": "Nueva Córdoba · prueba local"}],
+                    },
+                ],
+                "grupos": [],
+                "clientes": [],
+            }
+            self._send(200, json.dumps(payload).encode(), "application/json")
+            return
+        if parsed.path.endswith("/usuario/urbano2_cmd.php") and query_command == "seleccionatraza":
+            route = form.get("ruta", [""])[0]
+            if route == "10":
+                stops = [
+                    {
+                        "codigo": "A911",
+                        "descripcion": "AV. DUARTE QUIROS 1717-1728",
+                        "lineas": [{"linea_id": "10", "linea_nombre": "10"}],
+                    },
+                    {
+                        "codigo": "CE56",
+                        "descripcion": "COLON 545/33",
+                        "lineas": [{"linea_id": "10", "linea_nombre": "10"}],
+                    },
+                ]
+            else:
+                stops = [
+                    {
+                        "codigo": "NC15",
+                        "descripcion": "AV HIPOLITO IRIGOYEN 660",
+                        "lineas": [{"linea_id": "40", "linea_nombre": "40"}],
+                    }
+                ]
+            self._send(200, json.dumps({"paradas": stops, "notificaciones": []}).encode(), "application/json")
             return
         if parsed.path.endswith("/usuario/urbano2_cmd.php") and body_command == "proximos_arribos":
             code = form.get("codigo", ["AA50"])[0]
@@ -108,16 +153,36 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(408)
                 return
             payload = {
-                "parada": {"codigo": code, "descripcion": f"Parada QA {code}", "lineas": []},
+                "parada": {"codigo": code, "descripcion": "Parada de prueba local", "lineas": []},
+                "notificacion": {
+                    "tipo": "aviso",
+                    "mensaje": "Aviso de prueba local: desvío temporal; consultá el recorrido antes de salir.",
+                },
                 "proximos_arribos": [
                     {
-                        "linea": "QA10",
-                        "linea_nombre": "QA local",
-                        "ruta_descripcion": "Respuesta de prueba local",
+                        "linea": "10",
+                        "linea_nombre": "10",
+                        "ruta_descripcion": "Centro · Terminal de Ómnibus · datos de prueba local",
                         "demora": "4min",
                         "distancia": 0.2,
-                        "color": "#234567",
-                    }
+                        "color": "#0E627C",
+                    },
+                    {
+                        "linea": "40",
+                        "linea_nombre": "40",
+                        "ruta_descripcion": "Ciudad Universitaria · destino largo para validar el ajuste en pantalla",
+                        "demora": "12min",
+                        "distancia": 1.6,
+                        "color": "#146E68",
+                    },
+                    {
+                        "linea": "50",
+                        "linea_nombre": "50",
+                        "ruta_descripcion": "Barrio Jardín · servicio simulado",
+                        "demora": "27min",
+                        "distancia": 3.4,
+                        "color": "#815019",
+                    },
                 ],
             }
             self._send(200, json.dumps(payload).encode(), "application/json")

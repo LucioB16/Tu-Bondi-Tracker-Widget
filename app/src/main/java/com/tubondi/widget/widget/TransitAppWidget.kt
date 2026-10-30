@@ -2,24 +2,31 @@ package com.tubondi.widget.widget
 
 import android.content.Context
 import android.content.Intent
+import android.appwidget.AppWidgetManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.preferences.core.Preferences
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.LocalContext
+import androidx.glance.LocalSize
+import androidx.glance.currentState
+import androidx.glance.ButtonDefaults
 import androidx.glance.action.clickable
+import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.lazy.LazyColumn
-import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
+import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
-import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -27,231 +34,332 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
-import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.semantics.contentDescription
 import androidx.glance.semantics.semantics
 import androidx.glance.state.PreferencesGlanceStateDefinition
+import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.text.FontWeight
-import androidx.compose.ui.graphics.Color
-import androidx.glance.color.ColorProvider
-import com.tubondi.widget.R
-import com.tubondi.widget.domain.HtmlText
+import androidx.glance.unit.ColorProvider as GlanceColorProvider
+import com.tubondi.widget.domain.ArrivalFreshness
+import com.tubondi.widget.domain.displayName
 import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.ui.arrivals.ArrivalsActivity
-import com.tubondi.widget.ui.config.ConfigActivity
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import com.tubondi.widget.ui.theme.TuBondiPalette
+import com.tubondi.widget.ui.theme.TuBondiSpacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
-/**
- * Glance App Widget que construye el tablero de arribos (RF-3/RF-11/RF-12):
- * fila de arribo con color de línea, destino, distancia y avisos del
- * backend; tap -> pantalla completa (D1), ⚙ -> configuración.
- *
- * Colores: fábrica day/night de androidx.glance.color - el ColorProvider fijo (unit) crashea en RemoteViews
- */
+/** A size-aware arrival summary; every tap on its body opens the full arrivals screen. */
 class TransitAppWidget : GlanceAppWidget() {
 
     override val stateDefinition = PreferencesGlanceStateDefinition
+    override val sizeMode: SizeMode = SizeMode.Exact
 
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val prefs = androidx.glance.appwidget.state.getAppWidgetState(
-            context,
-            PreferencesGlanceStateDefinition,
-            id
-        )
-        val raw = prefs[WidgetStateStorage.STATE_KEY]
-        val state = raw?.let { json.decodeFromString<WidgetUiState>(it) } ?: WidgetUiState()
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
-        val configIntent = Intent(context, ConfigActivity::class.java).apply {
-            putExtra("appWidgetId", appWidgetId)
-        }
         val arrivalsIntent = Intent(context, ArrivalsActivity::class.java).apply {
-            putExtra("appWidgetId", appWidgetId)
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
         }
         provideContent {
+            // Read persisted Glance state inside the composition so an update
+            // during a live Glance session can render the latest worker result.
+            val raw = currentState<Preferences>()[WidgetStateStorage.STATE_KEY]
+            val state = remember(raw) {
+                raw?.let { json.decodeFromString<WidgetUiState>(it) } ?: WidgetUiState()
+            }
             GlanceTheme {
-                WidgetContent(state = state, configIntent = configIntent, arrivalsIntent = arrivalsIntent)
+                WidgetContent(state = state, arrivalsIntent = arrivalsIntent)
             }
         }
     }
 }
 
-private fun background(highContrast: Boolean) =
-    if (highContrast) {
-        ColorProvider(day = Color(0xFF000000), night = Color(0xFF000000))
-    } else {
-        ColorProvider(day = Color(0xFF1F1B24), night = Color(0xFF1F1B24))
-    }
+private data class WidgetColors(
+    val background: GlanceColorProvider,
+    val text: GlanceColorProvider,
+    val muted: GlanceColorProvider,
+    val primary: GlanceColorProvider,
+    val onPrimary: GlanceColorProvider,
+    val eta: GlanceColorProvider,
+    val warning: GlanceColorProvider,
+    val warningSurface: GlanceColorProvider
+)
 
-private fun onBackground() = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFFFFFFFF))
-
-private fun muted() = ColorProvider(day = Color(0xFFB0BEC5), night = Color(0xFFB0BEC5))
-
-private fun warn() = ColorProvider(day = Color(0xFFFFAB91), night = Color(0xFFFFAB91))
-
-private fun stopHeaderColor() = ColorProvider(day = Color(0xFFBBDEFB), night = Color(0xFFBBDEFB))
-
-/** Umbrales de color de Oma (widget.owl:63): ≤ 5 verde, ≤ 15 ámbar, resto neutro. */
-private fun etaColor(etaMinutes: Int?) = when {
-    etaMinutes == null -> ColorProvider(day = Color(0xFFE0E0E0), night = Color(0xFFE0E0E0))
-    etaMinutes <= 5 -> ColorProvider(day = Color(0xFF4CAF50), night = Color(0xFF4CAF50))
-    etaMinutes <= 15 -> ColorProvider(day = Color(0xFFFFC107), night = Color(0xFFFFC107))
-    else -> ColorProvider(day = Color(0xFFE0E0E0), night = Color(0xFFE0E0E0))
+private fun widgetColors(highContrast: Boolean) = if (highContrast) {
+    WidgetColors(
+        background = pair(Color.White, Color.Black),
+        text = pair(Color.Black, Color.White),
+        muted = pair(Color(0xFF202124), Color.White),
+        primary = pair(Color(0xFF003B4A), Color.Yellow),
+        onPrimary = pair(Color.White, Color.Black),
+        eta = pair(Color(0xFF005A36), Color(0xFF7CFFB0)),
+        warning = pair(Color(0xFF6B3900), Color(0xFFFFD18E)),
+        warningSurface = pair(Color(0xFFFFF0D6), Color(0xFF43331E))
+    )
+} else {
+    WidgetColors(
+        background = pair(TuBondiPalette.lightBackground, TuBondiPalette.darkBackground),
+        text = pair(TuBondiPalette.lightText, TuBondiPalette.darkText),
+        muted = pair(TuBondiPalette.lightMuted, TuBondiPalette.darkMuted),
+        primary = pair(TuBondiPalette.lightPrimary, TuBondiPalette.darkPrimary),
+        onPrimary = pair(TuBondiPalette.lightOnPrimary, TuBondiPalette.darkOnPrimary),
+        eta = pair(TuBondiPalette.lightEta, TuBondiPalette.darkEta),
+        warning = pair(TuBondiPalette.lightWarning, TuBondiPalette.darkWarning),
+        warningSurface = pair(TuBondiPalette.lightWarningContainer, TuBondiPalette.darkWarningContainer)
+    )
 }
 
-private fun colorDot(hex: String?) = try {
-    ColorProvider(day = Color(android.graphics.Color.parseColor(hex ?: "#ffb300")), night = Color(android.graphics.Color.parseColor(hex ?: "#ffb300")))
-} catch (ex: IllegalArgumentException) {
-    ColorProvider(day = Color(0xFFFFB300), night = Color(0xFFFFB300))
+private fun pair(day: Color, night: Color) = ColorProvider(day = day, night = night)
+
+internal fun widgetArrivalRowLimit(compact: Boolean, medium: Boolean, fontScale: Float): Int = when {
+    compact -> 1
+    medium -> if (fontScale >= 1.2f) 1 else 2
+    fontScale >= 1.2f -> 2
+    else -> 4
 }
 
 @Composable
-private fun WidgetContent(state: WidgetUiState, configIntent: Intent, arrivalsIntent: Intent) {
+private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
+    val size: DpSize = LocalSize.current
+    val fontScale = LocalContext.current.resources.configuration.fontScale
+    val compact = size.width < 220.dp || size.height < 140.dp
+    val medium = !compact && (size.width < 320.dp || size.height < 210.dp)
+    val rowLimit = widgetArrivalRowLimit(compact, medium, fontScale)
+    val groupLimit = if (compact) 1 else 2
+    val now = System.currentTimeMillis()
+    val colors = widgetColors(state.highContrast)
+    val stale = ArrivalFreshness.isStale(state.lastUpdatedEpochMillis, now)
+    val visibleGroups = state.prioritizedArrivals(rowLimit, groupLimit)
+
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(background(state.highContrast))
-            .padding(12.dp)
+            .background(colors.background)
+            .clickable(actionStartActivity(arrivalsIntent))
+            .semantics { contentDescription = "Abrir arribos de Tu Bondi" }
+            .padding(if (compact) TuBondiSpacing.compact else TuBondiSpacing.standard)
     ) {
-        HeaderRow(state, configIntent, arrivalsIntent)
-        Spacer(modifier = GlanceModifier.height(8.dp))
-        when {
-            state.arrivals.isEmpty() -> {
+        HeaderRow(state, colors, compact, medium, fontScale, arrivalsIntent)
+        if (state.arrivals.isEmpty()) {
+            Spacer(GlanceModifier.height(6.dp))
+            Text(
+                text = when {
+                    state.degraded -> "No hay datos actuales. Tocá para reintentar."
+                    state.lastUpdatedEpochMillis == 0L -> "Tocá para ver arribos o configurar el widget."
+                    else -> "Sin arribos para las paradas configuradas."
+                },
+                style = TextStyle(color = if (state.degraded) colors.warning else colors.muted, fontSize = 13.sp),
+                maxLines = if (compact) 2 else 3
+            )
+            return@Column
+        }
+
+        if (state.degraded && !compact) {
+            Text(
+                text = "No pudimos actualizar; conservamos el último dato válido.",
+                modifier = GlanceModifier
+                    .fillMaxWidth()
+                    .background(colors.warningSurface)
+                    .padding(horizontal = TuBondiSpacing.compact, vertical = 3.dp),
+                style = TextStyle(color = colors.warning, fontSize = 12.sp),
+                maxLines = 1
+            )
+        }
+        if (stale) {
+            Text(
+                text = "Datos antiguos · ETA ocultas",
+                modifier = GlanceModifier
+                    .fillMaxWidth()
+                    .background(colors.warningSurface)
+                    .padding(horizontal = TuBondiSpacing.compact, vertical = 3.dp),
+                style = TextStyle(color = colors.warning, fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                maxLines = 1
+            )
+            return@Column
+        }
+
+        if (visibleGroups.isEmpty()) {
+            Spacer(GlanceModifier.height(6.dp))
+            Text(
+                text = "Sin arribos para las paradas configuradas.",
+                style = TextStyle(color = colors.muted, fontSize = 13.sp),
+                maxLines = 2
+            )
+            if (state.arrivals.any(::hasNotice) && !compact) {
                 Text(
-                    text = state.statusText() ?: "Sin datos",
-                    style = TextStyle(color = if (state.degraded && !state.refreshing) warn() else onBackground())
+                    text = "Avisos disponibles · ver en Arribos",
+                    style = TextStyle(color = colors.warning, fontSize = 12.sp),
+                    maxLines = 1
                 )
             }
-            else -> {
-                state.statusText()?.let { status ->
-                    val isError = state.degraded && !state.refreshing
-                    Text(
-                        text = if (isError) "⚠ $status" else status,
-                        style = TextStyle(color = if (isError) warn() else muted(), fontSize = 12.sp),
-                        maxLines = 1
+            return@Column
+        }
+
+        Spacer(GlanceModifier.height(if (compact || medium) 4.dp else 6.dp))
+        visibleGroups.forEach { group ->
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                StopHeader(group, colors)
+                group.arrivals.forEach { arrival ->
+                    ArrivalRow(
+                        arrival = arrival,
+                        lastUpdated = state.lastUpdatedEpochMillis,
+                        now = now,
+                        colors = colors,
+                        compact = compact
                     )
                 }
-                LazyColumn(modifier = GlanceModifier.fillMaxWidth()) {
-                    state.arrivals.forEach { stopArrivals ->
-                        item { StopHeader(stopArrivals) }
-                        items(stopArrivals.arrivals) { arrival ->
-                            ArrivalRow(arrival)
-                        }
-                    }
-                }
             }
+        }
+        if (state.arrivals.any(::hasNotice) && !stale && !compact && !medium) {
+            Spacer(GlanceModifier.height(3.dp))
+            Text(
+                text = "⚠ Aviso en Arribos",
+                style = TextStyle(color = colors.warning, fontSize = 12.sp),
+                maxLines = 1
+            )
         }
     }
 }
 
 @Composable
-private fun HeaderRow(state: WidgetUiState, configIntent: Intent, arrivalsIntent: Intent) {
+private fun HeaderRow(
+    state: WidgetUiState,
+    colors: WidgetColors,
+    compact: Boolean,
+    medium: Boolean,
+    fontScale: Float,
+    arrivalsIntent: Intent
+) {
     val context = LocalContext.current
-    val refreshLabel = state.arrivals.firstOrNull()?.stop?.name
-        ?.let { "Actualizar arribos para $it" } ?: "Actualizar arribos"
     Row(
-        modifier = GlanceModifier
-            .fillMaxWidth()
-            .clickable(actionStartActivity(arrivalsIntent)),
+        modifier = GlanceModifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text(
-                text = context.getString(R.string.widget_header),
-                style = TextStyle(fontWeight = FontWeight.Bold, color = onBackground())
-            )
-            if (state.lastUpdatedEpochMillis > 0) {
-                val formatted = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(state.lastUpdatedEpochMillis))
-                val label = if (state.degraded || state.refreshing) {
-                    "última $formatted"
+                text = if (fontScale >= 1.2f) {
+                    "Próximos arribos"
                 } else {
-                    "Actualizado $formatted"
-                }
-                Text(text = label, style = TextStyle(color = muted(), fontSize = 12.sp), maxLines = 1)
+                    context.getString(com.tubondi.widget.R.string.widget_header)
+                },
+                modifier = GlanceModifier
+                    .clickable(actionStartActivity(arrivalsIntent))
+                    .semantics { contentDescription = "Abrir arribos de Tu Bondi" },
+                style = TextStyle(
+                    fontWeight = FontWeight.Bold,
+                    color = colors.text,
+                    fontSize = when {
+                        compact -> 14.sp
+                        medium -> 15.sp
+                        else -> 16.sp
+                    }
+                ),
+                maxLines = 1
+            )
+            val lastUpdated = state.lastUpdatedEpochMillis
+            if (lastUpdated > 0L) {
+                val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastUpdated))
+                val age = ArrivalFreshness.ageLabel(lastUpdated, System.currentTimeMillis()).orEmpty()
+                Text(
+                    text = if (fontScale >= 1.2f) "$time · $age" else "Actualizado $time · $age",
+                    style = TextStyle(color = colors.muted, fontSize = 12.sp),
+                    maxLines = 1
+                )
+            } else {
+                Text(
+                    text = if (fontScale >= 1.2f) "Sin datos todavía" else "Esperando el primer dato",
+                    style = TextStyle(color = colors.muted, fontSize = 12.sp),
+                    maxLines = 1
+                )
+            }
+            if (state.degraded && compact) {
+                Text(
+                    text = "Actualización fallida",
+                    modifier = GlanceModifier.background(colors.warningSurface).padding(horizontal = 6.dp, vertical = 2.dp),
+                    style = TextStyle(color = colors.warning, fontSize = 12.sp),
+                    maxLines = 1
+                )
             }
         }
-        androidx.glance.Button(
-        text = "⚙",
-            modifier = GlanceModifier.semantics { contentDescription = "Configurar widget" },
-            onClick = actionStartActivity(configIntent)
-        )
-        androidx.glance.Button(
-            text = context.getString(R.string.action_refresh),
-            modifier = GlanceModifier.semantics { contentDescription = refreshLabel },
-            onClick = actionRunCallback<RefreshActionCallback>()
-        )
+        if (!compact) {
+            androidx.glance.Button(
+                text = "Actualizar",
+                modifier = GlanceModifier.semantics { contentDescription = "Actualizar arribos" },
+                onClick = actionRunCallback<com.tubondi.widget.widget.RefreshActionCallback>(),
+                colors = ButtonDefaults.buttonColors(
+                    backgroundColor = colors.primary,
+                    contentColor = colors.onPrimary
+                )
+            )
+        }
     }
 }
 
 @Composable
-private fun StopHeader(stopArrivals: StopArrivals) {
+private fun StopHeader(group: StopArrivals, colors: WidgetColors) {
     Text(
-        text = stopArrivals.stop.name,
-        style = TextStyle(fontWeight = FontWeight.Bold, color = stopHeaderColor()),
-        modifier = GlanceModifier.padding(top = 8.dp)
+        text = group.stop.displayName(),
+        style = TextStyle(
+            fontWeight = FontWeight.Bold,
+            color = colors.primary,
+            fontSize = 12.sp
+        ),
+        maxLines = 1
     )
-    HtmlText.notice(stopArrivals.backendMessage)?.let {
-        Text(
-            text = "⚠ $it",
-            style = TextStyle(color = warn(), fontSize = 12.sp),
-            maxLines = 2
-        )
-    }
 }
 
-/**
- * Fila de arribo enriquecida (RF-3/RF-11): dot de color de línea,
- * destino, distancia, aviso por arribo y ETA coloreada por umbral
- * (≤ 5 verde, ≤ 15 ámbar, resto neutro — paridad Oma widget.owl:63).
- */
 @Composable
-private fun ArrivalRow(arrival: Arrival) {
+private fun ArrivalRow(
+    arrival: Arrival,
+    lastUpdated: Long,
+    now: Long,
+    colors: WidgetColors,
+    compact: Boolean
+) {
+    val eta = ArrivalFreshness.etaLabel(arrival, lastUpdated, now)
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
+            .padding(vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = GlanceModifier
-                .size(10.dp)
-                .background(colorDot(arrival.color))
-        ) {}
-        Spacer(modifier = GlanceModifier.width(6.dp))
         Column(modifier = GlanceModifier.defaultWeight()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = arrival.lineName,
+                style = TextStyle(fontWeight = FontWeight.Bold, color = colors.text, fontSize = 14.sp),
+                maxLines = 1
+            )
+            arrival.routeDescription?.takeIf { it.isNotBlank() }?.let { destination ->
                 Text(
-                    text = arrival.lineName,
-                    style = TextStyle(fontWeight = FontWeight.Bold, color = onBackground())
-                )
-                arrival.distanceKm?.let { dist ->
-                    Spacer(modifier = GlanceModifier.width(6.dp))
-                    Text(text = "%.1f km".format(dist), style = TextStyle(color = muted(), fontSize = 12.sp), maxLines = 1)
-                }
-            }
-            arrival.routeDescription?.takeIf { it.isNotBlank() }?.let { dest ->
-                Text(text = dest, style = TextStyle(color = muted(), fontSize = 12.sp), maxLines = 1)
-            }
-            HtmlText.notice(arrival.notification)?.let { notif ->
-                Text(
-                    text = "⚠ $notif",
-                    style = TextStyle(color = warn(), fontSize = 12.sp),
-                    maxLines = 2
+                    text = destination,
+                    style = TextStyle(color = colors.muted, fontSize = 12.sp),
+                    maxLines = 1
                 )
             }
         }
+        Spacer(GlanceModifier.width(6.dp))
         Text(
-        text = arrival.etaText.ifBlank { "—" },
-            style = TextStyle(fontWeight = FontWeight.Bold, color = etaColor(arrival.etaMinutes))
+            text = eta,
+            style = TextStyle(
+                fontWeight = FontWeight.Bold,
+                color = if (eta == "Estimación vencida") colors.warning else colors.eta,
+                fontSize = when {
+                    compact -> 19.sp
+                    else -> 16.sp
+                }
+            ),
+            maxLines = 1
         )
     }
 }
+
+private fun hasNotice(group: StopArrivals): Boolean =
+    !group.backendMessage.isNullOrBlank() || group.arrivals.any { !it.notification.isNullOrBlank() }

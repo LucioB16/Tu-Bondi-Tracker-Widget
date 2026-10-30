@@ -8,6 +8,7 @@ import com.tubondi.widget.data.remote.dto.LinesRoutesResponseDto
 import com.tubondi.widget.data.remote.dto.RouteSelectionResponseDto
 import com.tubondi.widget.data.remote.dto.StopDto
 import com.tubondi.widget.data.remote.dto.StopLineDto
+import com.tubondi.widget.data.catalog.CatalogRepository
 import com.tubondi.widget.domain.EtaParser
 import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.Line
@@ -29,7 +30,8 @@ import javax.inject.Singleton
 @Singleton
 class TransitRepository @Inject constructor(
     private val client: TuBondiHttpClient,
-    private val clock: Clock
+    private val clock: Clock,
+    private val catalogRepository: CatalogRepository
 ) {
 
     suspend fun fetchLines(conf: String): List<Line> {
@@ -41,7 +43,7 @@ class TransitRepository @Inject constructor(
 
     suspend fun fetchStopsForRoute(routeId: Int, clientId: Int, conf: String): List<Stop> {
         val dto: RouteSelectionResponseDto = client.selectRouteTrace(routeId, clientId, conf)
-        return dto.paradas.map { it.toDomainStop() }
+        return dto.paradas.map { catalogRepository.resolveStop(it.toDomainStop()) }
     }
 
     suspend fun fetchArrivalsForConfig(config: WidgetConfiguration): List<StopArrivals> =
@@ -57,7 +59,14 @@ class TransitRepository @Inject constructor(
             if (clock.millis() >= deadline) throw IOException("Refresh cycle budget exceeded")
             val response = client.getArrivals(selection.stop.code, config.conf)
             val arrivals = filterArrivals(response, selection)
-            val stop = response.parada?.toDomainStop() ?: selection.stop
+            val selectedStop = catalogRepository.resolveStop(selection.stop)
+            val responseStop = response.parada?.toDomainStop() ?: selectedStop
+            val stop = catalogRepository.resolveStop(
+                responseStop.copy(
+                    hood = responseStop.hood ?: selectedStop.hood,
+                    customName = selectedStop.customName
+                )
+            )
             results += StopArrivals(
                 stop = stop,
                 arrivals = arrivals,

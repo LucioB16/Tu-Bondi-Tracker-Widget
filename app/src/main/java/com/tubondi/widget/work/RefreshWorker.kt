@@ -2,6 +2,7 @@ package com.tubondi.widget.work
 
 import android.content.Context
 import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.updateAll
 import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -67,7 +68,7 @@ class RefreshWorker @AssistedInject constructor(
                 highContrast = config.highContrast
             )
             WidgetStateStorage.writeState(applicationContext, glanceId, state)
-            TransitAppWidget().update(applicationContext, glanceId)
+            TransitAppWidget().updateAll(applicationContext)
             notifier.dispatch(config, arrivals)
         } catch (ex: CancellationException) {
             throw ex
@@ -77,7 +78,10 @@ class RefreshWorker @AssistedInject constructor(
             val previous = WidgetStateStorage.readState(applicationContext, glanceId)
             val state = WidgetUiState.errorState(previous, friendlyErrorMessage(ex), config.highContrast)
             WidgetStateStorage.writeState(applicationContext, glanceId, state)
-            TransitAppWidget().update(applicationContext, glanceId)
+            // A host can keep showing its previous RemoteViews after the
+            // failed background action. Re-render all instances from their
+            // persisted states so the error reaches the launcher as well.
+            TransitAppWidget().updateAll(applicationContext)
         }
         return Result.success()
     }
@@ -92,8 +96,10 @@ class RefreshWorker @AssistedInject constructor(
         private const val KEY_WIDGET_ID = "widget_id"
         private const val INVALID_WIDGET = -1
         private const val UNIQUE_WORK = "transit_periodic"
+        private const val UNIQUE_AGE = "transit_age"
 
         private fun widgetWorkTag(appWidgetId: Int) = "transit_widget_$appWidgetId"
+        private fun widgetAgeWorkTag(appWidgetId: Int) = "transit_age_widget_$appWidgetId"
 
         fun enqueuePeriodic(context: Context, config: WidgetConfiguration) {
             val interval = config.refreshIntervalMinutes.coerceIn(
@@ -109,6 +115,19 @@ class RefreshWorker @AssistedInject constructor(
                 "$UNIQUE_WORK-${config.appWidgetId}",
                 ExistingPeriodicWorkPolicy.UPDATE,
                 request
+            )
+
+            val ageRequest = PeriodicWorkRequestBuilder<WidgetAgeWorker>(
+                MIN_REFRESH_INTERVAL_MINUTES.toLong(),
+                TimeUnit.MINUTES
+            )
+                .setInputData(workDataOf(WidgetAgeWorker.KEY_WIDGET_ID to config.appWidgetId))
+                .addTag(widgetAgeWorkTag(config.appWidgetId))
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                "$UNIQUE_AGE-${config.appWidgetId}",
+                ExistingPeriodicWorkPolicy.KEEP,
+                ageRequest
             )
         }
 
@@ -129,10 +148,14 @@ class RefreshWorker @AssistedInject constructor(
             val appContext = context.applicationContext
             appWidgetIds.forEach { id ->
                 val cancelPeriodic = wm.cancelUniqueWork("$UNIQUE_WORK-$id")
+                val cancelAge = wm.cancelUniqueWork("$UNIQUE_AGE-$id")
                 val cancelTagged = wm.cancelAllWorkByTag(widgetWorkTag(id))
+                val cancelAgeTagged = wm.cancelAllWorkByTag(widgetAgeWorkTag(id))
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                     runCatching { cancelPeriodic.result.get(10, TimeUnit.SECONDS) }
+                    runCatching { cancelAge.result.get(10, TimeUnit.SECONDS) }
                     runCatching { cancelTagged.result.get(10, TimeUnit.SECONDS) }
+                    runCatching { cancelAgeTagged.result.get(10, TimeUnit.SECONDS) }
                     WidgetPreferences(appContext.dataStore).removeConfiguration(id)
                 }
             }
