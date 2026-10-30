@@ -54,3 +54,13 @@ La guía oficial de Glance también requiere observar los cambios dentro de la c
 - **D4 continúa pendiente:** se usa el catálogo local incluido en la app. No se activa descarga automática hasta validar la fuente municipal candidata, su vigencia, equivalencia de identificadores y condiciones de uso.
 - No se utilizó la API de producción durante la verificación; `adb reverse` conectó el emulador únicamente al stub de loopback.
 - `PLAN.md` no está versionado y sigue excluido mediante un `core.excludesFile` propio del worktree. El keystore de publicación está fuera del repositorio; el procedimiento repetible está en [`docs/RELEASING.md`](../RELEASING.md).
+
+## Release v1.2.0 — 2026-10-30
+
+- Revisión final local: testDebugUnitTest, assembleDebug y assembleRelease pasaron; 77 tests en 17 suites, cero fallos, errores o skips. Build serial, sin QEMU activo.
+- Búsqueda de catálogo: 5.050 paradas, 20 consultas repetidas en 79 ms; índice normalizado cacheado y consulta en Dispatchers.Default.
+- Prueba release aislada: modo avión activo; v1.1.0 y después v1.2.0 se instalaron con la misma firma SHA-256 e03c896e614033a6840d500444e82dc23e589ed109a1b8f3efc7530c16b408f5. v1.2.0 abrió correctamente y mostró el estado sin conexión sin consultar producción.
+- Recorrido API 36 de release: selector real muestra preview 3×2 y descripción de demo; se colocó el widget, se agregó una parada local, se guardó, se abrió Arribos y se revisaron Paradas/Ajustes; permiso POST_NOTIFICATIONS concedido. El widget y Arribos mostraron el error esperado en modo avión.
+- Ícono temático: Pixel Launcher API 36 muestra la variante monocromática en la pantalla de inicio; evidencia local ignorada: launcher-themed-icon-v1.2.png.
+- Capturas README reales revisadas: docs/images/widget.png, docs/images/arribos.png y docs/images/configuracion.png. ReadmeBloom audit y git diff --check pasan. El ZIP de revisión v2.2 pasa unzip -t y permanece excluido localmente.
+- Se agregó staleWideWidgetKeepsStopAndLineDetailsButHidesExpiredArrivalTime; conserva nombre de parada, línea y destino mientras oculta la estimación vencida.

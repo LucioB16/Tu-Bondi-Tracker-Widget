@@ -2,6 +2,8 @@ package com.tubondi.widget.data.remote.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * DTOs alineados con los JSON REALES de TuBondi.
@@ -66,18 +68,24 @@ data class RouteSelectionResponseDto(
 data class StopDto(
     val codigo: String,
     val descripcion: String = "",
+    val nombre: String = "",
     @SerialName("parada_nombre") val paradaNombre: String = "",
-    val lat: Double? = null,
-    val lon: Double? = null,
-    val lineas: List<StopLineDto> = emptyList()
+    val lat: JsonElement? = null,
+    val lon: JsonElement? = null,
+    val lineas: List<StopLineDto> = emptyList(),
+    @SerialName("linea") val lineId: String? = null,
+    @SerialName("cliente") val clientId: Int? = null,
+    val color: String? = null
 )
 
 @Serializable
 data class StopLineDto(
-    @SerialName("linea_id") val lineId: String,
-    @SerialName("linea_nombre") val name: String,
+    @SerialName("linea_id") val lineId: String = "",
+    @SerialName("linea") val selectedRouteLineId: String? = null,
+    @SerialName("linea_nombre") val name: String = "",
     val color: String? = null,
-    val operador: String? = null
+    val operador: String? = null,
+    @SerialName("cliente") val clientId: Int? = null
 )
 
 /**

@@ -16,6 +16,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -72,6 +75,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -91,12 +95,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.tubondi.widget.data.catalog.CatalogStop
 import com.tubondi.widget.domain.displayName
+import com.tubondi.widget.domain.LineColorResolver
 import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.MAX_REFRESH_INTERVAL_MINUTES
 import com.tubondi.widget.domain.model.MIN_REFRESH_INTERVAL_MINUTES
 import com.tubondi.widget.ui.theme.TuBondiTheme
 import com.tubondi.widget.ui.theme.TuBondiSpacing
 import com.tubondi.widget.widget.TransitGlanceReceiver
+import com.tubondi.widget.ui.map.StopMapActivity
+import com.tubondi.widget.ui.map.MapStopPayload
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import dagger.hilt.android.AndroidEntryPoint
 import kotlin.math.roundToInt
 
@@ -117,6 +127,12 @@ class ConfigActivity : ComponentActivity() {
             return
         }
         setResult(RESULT_CANCELED)
+        val mapLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val selectedCodes = result.data?.getStringArrayListExtra(StopMapActivity.EXTRA_SELECTED_CODES)
+            if (result.resultCode == RESULT_OK && selectedCodes != null) {
+                viewModel.applyRouteMapSelection(selectedCodes.toSet())
+            }
+        }
         setContent {
             val state by viewModel.state.collectAsState()
             LaunchedEffect(appWidgetId) { viewModel.load(appWidgetId) }
@@ -135,6 +151,17 @@ class ConfigActivity : ComponentActivity() {
                     onSearchChanged = viewModel::search,
                     onAddStop = viewModel::addCatalogStop,
                     onAddRouteStop = { viewModel.addRouteStop(it.code) },
+                    onShowMap = { stops ->
+                        mapLauncher.launch(
+                            Intent(this, StopMapActivity::class.java).putExtra(
+                                StopMapActivity.EXTRA_STOPS,
+                                Json.encodeToString(
+                                    ListSerializer(MapStopPayload.serializer()),
+                                    stops
+                                )
+                            )
+                        )
+                    },
                     onBack = { finish() },
                     onSave = {
                         viewModel.save {
@@ -166,6 +193,7 @@ fun ConfigScreen(
     onSearchChanged: (String) -> Unit,
     onAddStop: (CatalogStop) -> Unit,
     onAddRouteStop: (Stop) -> Unit,
+    onShowMap: (List<MapStopPayload>) -> Unit,
     onBack: () -> Unit,
     onSave: () -> Unit
 ) {
@@ -202,16 +230,14 @@ fun ConfigScreen(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = when {
-                            state.saving -> "Guardando configuración…"
-                            state.hasUnsavedChanges -> "Cambios sin guardar"
-                            else -> "La configuración está guardada"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(6.dp))
+                    if (state.saving || state.hasUnsavedChanges) {
+                        Text(
+                            text = if (state.saving) "Guardando…" else "Cambios sin guardar",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                     Button(
                         onClick = onSave,
                         enabled = !state.saving && state.selectedStops.any { it.isSelected },
@@ -270,7 +296,7 @@ fun ConfigScreen(
                 }
                 when (section) {
                     ConfigSection.STOPS.ordinal -> StopsSection(
-                        state, onSearchChanged, onAddStop, onAddRouteStop, onRemoveStop, onCustomNameChanged,
+                        state, onSearchChanged, onAddStop, onAddRouteStop, onShowMap, onRemoveStop, onCustomNameChanged,
                         onLineToggled, onRouteSelected
                     )
                     else -> SettingsSection(
@@ -290,7 +316,7 @@ fun ConfigScreen(
         AlertDialog(
             onDismissRequest = { showDiscardDialog = false },
             title = { Text("¿Descartar cambios?") },
-            text = { Text("Agregar y Quitar solo cambian este borrador. Si salís ahora, esos cambios no se aplican al widget.") },
+            text = { Text("Se perderán los cambios sin guardar.") },
             confirmButton = {
                 TextButton(onClick = { showDiscardDialog = false; onBack() }) { Text("Descartar") }
             },
@@ -308,6 +334,7 @@ private fun StopsSection(
     onSearchChanged: (String) -> Unit,
     onAddStop: (CatalogStop) -> Unit,
     onAddRouteStop: (Stop) -> Unit,
+    onShowMap: (List<MapStopPayload>) -> Unit,
     onRemoveStop: (String) -> Unit,
     onCustomNameChanged: (String, String) -> Unit,
     onLineToggled: (String, String, Boolean) -> Unit,
@@ -326,12 +353,7 @@ private fun StopsSection(
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Paradas primero", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    "Buscá por nombre, calle o barrio. Agregar modifica el borrador; Guardar lo aplica.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("Buscar paradas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 OutlinedTextField(
                     value = state.searchQuery,
                     onValueChange = onSearchChanged,
@@ -345,7 +367,20 @@ private fun StopsSection(
             }
         }
 
-        if (state.searchQuery.isNotBlank() && state.searchResults.isEmpty()) {
+        if (state.searching && state.searchResults.isEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Buscando paradas…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (state.searchQuery.isNotBlank() && !state.searching && state.searchResults.isEmpty()) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
@@ -366,6 +401,40 @@ private fun StopsSection(
             }
         }
 
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Mis paradas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("${selectedStops.size} seleccionadas", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (state.routeStops.isEmpty()) {
+                    OutlinedButton(
+                        onClick = { onShowMap(buildMapPayload(state.routeStops, selectedStops)) },
+                        enabled = selectedStops.isNotEmpty(),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) { Text("Mapa") }
+                }
+            }
+        }
+        if (selectedStops.isEmpty()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Todavía no agregaste paradas", fontWeight = FontWeight.SemiBold)
+                        Text("Buscá un lugar arriba.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        items(selectedStops, key = { "selected-${it.stop.code}" }) { stopUi ->
+            SelectedStopCard(
+                stopUi = stopUi,
+                onRemove = { onRemoveStop(stopUi.stop.code) },
+                onCustomNameChanged = { onCustomNameChanged(stopUi.stop.code, it) },
+                onLineToggled = { lineId, selected -> onLineToggled(stopUi.stop.code, lineId, selected) }
+            )
+        }
+
         if (state.searchQuery.isBlank() && state.hubs.isNotEmpty()) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -373,7 +442,6 @@ private fun StopsSection(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Lugares frecuentes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                Text("Agregá una parada con un toque", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (state.hubs.size > 8) {
                                 TextButton(onClick = { showAllHubs = !showAllHubs }) {
@@ -441,8 +509,20 @@ private fun StopsSection(
                     Text(state.selectedRoute?.routeName.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            item {
+                OutlinedButton(
+                    onClick = { onShowMap(buildMapPayload(state.routeStops, selectedStops)) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) { Text("Ver paradas en el mapa") }
+            }
             items(state.routeStops, key = { "route-stop-${it.code}" }) { candidate ->
-                val alreadyAdded = selectedStops.any { it.stop.code == candidate.code }
+                val selectedStop = selectedStops.firstOrNull { it.stop.code == candidate.code }
+                val alreadyAdded = selectedStop != null
+                val routeLineKnown = selectedStop?.stop?.lines?.any { line ->
+                    candidate.lines.any { it.selectionKey == line.selectionKey }
+                } == true
+                val canEnrich = alreadyAdded && (!routeLineKnown ||
+                    (selectedStop?.stop?.latitude == null && candidate.latitude != null))
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
@@ -456,45 +536,49 @@ private fun StopsSection(
                         }
                         Button(
                             onClick = { onAddRouteStop(candidate) },
-                            enabled = !alreadyAdded,
+                            enabled = !alreadyAdded || canEnrich,
                             modifier = Modifier.heightIn(min = 48.dp)
                         ) {
-                            Text(if (alreadyAdded) "Agregada" else "Agregar")
+                            Text(when {
+                                !alreadyAdded -> "Agregar"
+                                !routeLineKnown -> "Sumar línea"
+                                canEnrich -> "Ubicar"
+                                else -> "Agregada"
+                            })
                         }
                     }
                 }
             }
         }
 
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Mis paradas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (state.hasUnsavedChanges) "${selectedStops.size} seleccionadas · cambios sin guardar" else "${selectedStops.size} seleccionadas",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-        if (selectedStops.isEmpty()) {
-            item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Todavía no agregaste paradas", fontWeight = FontWeight.SemiBold)
-                        Text("Buscá un lugar arriba; después vas a poder elegir sus líneas.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-        items(selectedStops, key = { "selected-${it.stop.code}" }) { stopUi ->
-            SelectedStopCard(
-                stopUi = stopUi,
-                onRemove = { onRemoveStop(stopUi.stop.code) },
-                onCustomNameChanged = { onCustomNameChanged(stopUi.stop.code, it) },
-                onLineToggled = { lineId, selected -> onLineToggled(stopUi.stop.code, lineId, selected) }
-            )
-        }
+    }
+}
+
+private fun buildMapPayload(routeStops: List<Stop>, selectedStops: List<StopUiModel>): List<MapStopPayload> {
+    val selectedByCode = selectedStops.filter { it.isSelected }.associateBy { it.stop.code }
+    val routeCodes = routeStops.mapTo(mutableSetOf()) { it.code }
+    val mapStops = if (routeStops.isNotEmpty()) {
+        routeStops + selectedByCode.values.map { it.stop }.filterNot { it.code in routeCodes }
+    } else {
+        selectedByCode.values.map { it.stop }
+    }
+    return mapStops.distinctBy { it.code }.map { stop ->
+        val configured = selectedByCode[stop.code]?.stop
+        val displayStop = if (configured == null) stop else stop.copy(
+            name = configured.name,
+            hood = configured.hood ?: stop.hood,
+            customName = configured.customName,
+            latitude = stop.latitude ?: configured.latitude,
+            longitude = stop.longitude ?: configured.longitude
+        )
+        MapStopPayload(
+            code = displayStop.code,
+            name = displayStop.displayName(),
+            latitude = displayStop.latitude,
+            longitude = displayStop.longitude,
+            selectable = stop.code in routeCodes,
+            selected = selectedByCode.containsKey(stop.code)
+        )
     }
 }
 
@@ -525,7 +609,15 @@ private fun RouteRow(route: RouteUiModel, enabled: Boolean, onClick: () -> Unit)
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 8.dp)) {
-            Text("Línea ${route.lineName}", fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier.size(10.dp).background(
+                        route.color.toComposeColor() ?: MaterialTheme.colorScheme.outlineVariant,
+                        CircleShape
+                    )
+                )
+                Text("Línea ${route.lineName}", fontWeight = FontWeight.SemiBold)
+            }
             Text(route.routeName, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         OutlinedButton(onClick = onClick, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -576,22 +668,40 @@ private fun SelectedStopCard(
             if (stopUi.stop.lines.isNotEmpty()) {
                 HorizontalDivider()
                 Text("Líneas de esta parada", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Text("Si no elegís líneas, se muestran todas.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (stopUi.selectedLines.isEmpty()) {
+                    Text("Todas las líneas", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     stopUi.stop.lines.forEach { line ->
+                        val selected = stopUi.isLineSelected(line.selectionKey)
                         FilterChip(
-                            selected = stopUi.isLineSelected(line.id),
-                            onClick = { onLineToggled(line.id, !stopUi.isLineSelected(line.id)) },
-                            label = { Text(line.name) }
+                            selected = selected,
+                            onClick = { onLineToggled(line.selectionKey, !selected) },
+                            label = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(
+                                        Modifier.size(9.dp).background(
+                                            line.color.toComposeColor() ?: MaterialTheme.colorScheme.outlineVariant,
+                                            CircleShape
+                                        )
+                                    )
+                                    if (selected) Text("✓", color = MaterialTheme.colorScheme.primary)
+                                    Text(line.name)
+                                }
+                            }
                         )
                     }
                 }
             }
         }
     }
+}
+
+private fun String?.toComposeColor(): Color? = LineColorResolver.normalize(this)?.let { normalized ->
+    runCatching { Color(android.graphics.Color.parseColor(normalized)) }.getOrNull()
 }
 
 @Composable
@@ -641,7 +751,7 @@ private fun SettingsSection(
                 Text("Actualización automática", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("Cada ${state.refreshMinutes} min", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                 Text(
-                    "Android puede retrasar la ejecución. Si los datos superan 15 min, las ETA se ocultan aunque el intervalo sea mayor.",
+                                    "Sin datos nuevos, los horarios se ocultan al llegar este intervalo.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

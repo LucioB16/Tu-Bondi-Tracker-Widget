@@ -17,7 +17,8 @@ data class WidgetUiState(
     val lastUpdatedEpochMillis: Long = 0L,
     val errorMessage: String? = null,
     val highContrast: Boolean = false,
-    val degraded: Boolean = false
+    val degraded: Boolean = false,
+    val refreshIntervalMinutes: Int = 15
 ) {
     /**
      * Keeps one arrival from each highest-priority stop before filling spare
@@ -74,7 +75,8 @@ data class WidgetUiState(
             lastUpdatedEpochMillis = previous.lastUpdatedEpochMillis,
             errorMessage = errorMessage,
             highContrast = highContrast,
-            degraded = true
+            degraded = true,
+            refreshIntervalMinutes = previous.refreshIntervalMinutes
         )
     }
 }

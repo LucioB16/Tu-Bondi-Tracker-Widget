@@ -6,10 +6,13 @@ import org.junit.Test
 
 class ArrivalFreshnessTest {
     @Test
-    fun keepsEtaUntilTheConservativeFifteenMinuteBoundary() {
+    fun usesConfiguredRefreshIntervalAsFreshnessBoundary() {
         val success = 1_000_000L
         assertThat(ArrivalFreshness.isStale(success, success + 14 * ArrivalFreshness.MINUTE_MILLIS)).isFalse()
         assertThat(ArrivalFreshness.isStale(success, success + 15 * ArrivalFreshness.MINUTE_MILLIS)).isTrue()
+        assertThat(ArrivalFreshness.isStale(success, success + 59 * ArrivalFreshness.MINUTE_MILLIS, 60)).isFalse()
+        assertThat(ArrivalFreshness.isStale(success, success + 60 * ArrivalFreshness.MINUTE_MILLIS, 60)).isTrue()
+        assertThat(ArrivalFreshness.isStale(success, success + 15 * ArrivalFreshness.MINUTE_MILLIS, 1)).isTrue()
     }
 
     @Test
@@ -17,13 +20,17 @@ class ArrivalFreshnessTest {
         val lastSuccess = 10_000L
         val failedAt = lastSuccess + 4 * ArrivalFreshness.MINUTE_MILLIS
         val state = com.tubondi.widget.widget.WidgetUiState.errorState(
-            previous = com.tubondi.widget.widget.WidgetUiState(lastUpdatedEpochMillis = lastSuccess),
+            previous = com.tubondi.widget.widget.WidgetUiState(
+                lastUpdatedEpochMillis = lastSuccess,
+                refreshIntervalMinutes = 60
+            ),
             errorMessage = "Sin conexión",
             highContrast = false
         )
 
-        assertThat(ArrivalFreshness.isStale(state.lastUpdatedEpochMillis, failedAt)).isFalse()
+        assertThat(ArrivalFreshness.isStale(state.lastUpdatedEpochMillis, failedAt, state.refreshIntervalMinutes)).isFalse()
         assertThat(state.degraded).isTrue()
+        assertThat(state.refreshIntervalMinutes).isEqualTo(60)
     }
 
     @Test
@@ -45,6 +52,42 @@ class ArrivalFreshnessTest {
         assertThat(ArrivalFreshness.etaLabel(arrival, success, success + 9 * ArrivalFreshness.MINUTE_MILLIS))
             .isEqualTo("Estimación vencida")
         assertThat(ArrivalFreshness.etaLabel(arrival, success, success + 15 * ArrivalFreshness.MINUTE_MILLIS))
-            .isEqualTo("Horario oculto")
+            .isEqualTo("Sin horario estimado")
+    }
+
+    @Test
+    fun failedRequestDoesNotExtendTheLastSuccessTimestampOrEtaWindow() {
+        val success = 100_000L
+        val arrival = Arrival(etaMinutes = 70, etaText = "70min")
+        val failedState = com.tubondi.widget.widget.WidgetUiState.errorState(
+            previous = com.tubondi.widget.widget.WidgetUiState(
+                arrivals = listOf(com.tubondi.widget.domain.model.StopArrivals(
+                    stop = com.tubondi.widget.domain.model.Stop("internal", "Parada"),
+                    arrivals = listOf(arrival)
+                )),
+                lastUpdatedEpochMillis = success,
+                refreshIntervalMinutes = 60
+            ),
+            errorMessage = "Sin conexión",
+            highContrast = false
+        )
+
+        assertThat(failedState.lastUpdatedEpochMillis).isEqualTo(success)
+        assertThat(
+            ArrivalFreshness.etaLabel(
+                arrival,
+                failedState.lastUpdatedEpochMillis,
+                success + 59 * ArrivalFreshness.MINUTE_MILLIS,
+                failedState.refreshIntervalMinutes
+            )
+        ).isEqualTo("11 min")
+        assertThat(
+            ArrivalFreshness.etaLabel(
+                arrival,
+                failedState.lastUpdatedEpochMillis,
+                success + 60 * ArrivalFreshness.MINUTE_MILLIS,
+                failedState.refreshIntervalMinutes
+            )
+        ).isEqualTo("Sin horario estimado")
     }
 }

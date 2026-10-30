@@ -31,8 +31,8 @@ android {
         applicationId = "com.tubondi.widget"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -117,6 +117,11 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.0")
 
     implementation("androidx.glance:glance-appwidget:1.1.0")
+    implementation("org.maplibre.gl:android-sdk:11.0.0") {
+        // The app remains on Kotlin 1.9.23; use its runtime instead of the
+        // Kotlin 2.x stdlib declared by newer MapLibre releases.
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.0")

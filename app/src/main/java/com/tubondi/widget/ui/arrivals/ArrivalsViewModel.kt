@@ -30,7 +30,8 @@ data class ArrivalsUiState(
     val stops: List<StopArrivals> = emptyList(),
     val lastUpdated: Long = 0L,
     val error: String? = null,
-    val highContrast: Boolean = false
+    val highContrast: Boolean = false,
+    val refreshIntervalMinutes: Int = 15
 )
 
 @HiltViewModel
@@ -60,7 +61,12 @@ class ArrivalsViewModel @Inject constructor(
                 }
                 return@launch
             }
-            _state.update { it.copy(highContrast = config.highContrast) }
+            _state.update {
+                it.copy(
+                    highContrast = config.highContrast,
+                    refreshIntervalMinutes = config.refreshIntervalMinutes
+                )
+            }
             restoreCachedWidgetState(appWidgetId, config.highContrast)
             refreshInternal(config)
         }
@@ -90,7 +96,8 @@ class ArrivalsViewModel @Inject constructor(
                             stops = cached.arrivals,
                             lastUpdated = cached.lastUpdatedEpochMillis,
                             error = cached.errorMessage.takeIf { cached.degraded },
-                            highContrast = cached.highContrast
+                            highContrast = cached.highContrast,
+                            refreshIntervalMinutes = cached.refreshIntervalMinutes
                         )
                     }
                 }
@@ -120,7 +127,8 @@ class ArrivalsViewModel @Inject constructor(
                     stops = cached.arrivals,
                     lastUpdated = cached.lastUpdatedEpochMillis,
                     error = cached.errorMessage.takeIf { cached.degraded },
-                    highContrast = highContrast
+                    highContrast = highContrast,
+                    refreshIntervalMinutes = cached.refreshIntervalMinutes
                 )
             }
         } catch (ex: CancellationException) {
@@ -149,7 +157,14 @@ class ArrivalsViewModel @Inject constructor(
     }
 
     private suspend fun refreshInternal(config: WidgetConfiguration) {
-        _state.update { it.copy(loading = true, error = null, highContrast = config.highContrast) }
+        _state.update {
+            it.copy(
+                loading = true,
+                error = null,
+                highContrast = config.highContrast,
+                refreshIntervalMinutes = config.refreshIntervalMinutes
+            )
+        }
         try {
             val arrivals = repository.fetchArrivalsForConfig(config)
             val updatedAt = System.currentTimeMillis()
@@ -159,7 +174,8 @@ class ArrivalsViewModel @Inject constructor(
                 WidgetUiState(
                     arrivals = arrivals,
                     lastUpdatedEpochMillis = updatedAt,
-                    highContrast = config.highContrast
+                    highContrast = config.highContrast,
+                    refreshIntervalMinutes = config.refreshIntervalMinutes
                 )
             )
         } catch (ex: CancellationException) {
@@ -175,7 +191,8 @@ class ArrivalsViewModel @Inject constructor(
                     previous = WidgetUiState(
                         arrivals = previous.stops,
                         lastUpdatedEpochMillis = previous.lastUpdated,
-                        highContrast = config.highContrast
+                        highContrast = config.highContrast,
+                        refreshIntervalMinutes = config.refreshIntervalMinutes
                     ),
                     errorMessage = message,
                     highContrast = config.highContrast

@@ -1,6 +1,8 @@
 package com.tubondi.widget.widget
 
 import com.google.common.truth.Truth.assertThat
+import androidx.compose.ui.unit.dp
+import com.tubondi.widget.domain.ArrivalFreshness
 import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.Stop
 import com.tubondi.widget.domain.model.StopArrivals
@@ -17,6 +19,24 @@ class WidgetUiStateTest {
         assertThat(widgetArrivalRowLimit(compact = false, medium = true, fontScale = 1.3f)).isEqualTo(1)
         assertThat(widgetArrivalRowLimit(compact = false, medium = false, fontScale = 1.3f)).isEqualTo(2)
         assertThat(widgetArrivalRowLimit(compact = false, medium = false, fontScale = 1.0f)).isEqualTo(4)
+        assertThat(widgetArrivalRowLimit(compact = false, medium = false, fontScale = 1.0f, hasNotices = true)).isEqualTo(3)
+    }
+
+    @Test
+    fun tallWidgetUsesExpandedLayoutWhenPhoneLauncherLimitsItsWidth() {
+        assertThat(isCompactWidget(258.dp, 161.dp)).isFalse()
+        assertThat(isMediumWidget(258.dp, 161.dp)).isTrue()
+        assertThat(isCompactWidget(258.dp, 250.dp)).isFalse()
+        assertThat(isMediumWidget(258.dp, 250.dp)).isFalse()
+        assertThat(isCompactWidget(180.dp, 240.dp)).isTrue()
+    }
+
+    @Test
+    fun compactAgeKeepsLastUpdatedLineShortButDynamic() {
+        assertThat(compactAgeLabel(1_000L, 1_000L)).isEqualTo("hace <1 min")
+        assertThat(compactAgeLabel(1_000L, 61_000L)).isEqualTo("hace 1 min")
+        assertThat(compactAgeLabel(1_000L, 3_601_000L)).isEqualTo("hace 1 h")
+        assertThat(compactAgeLabel(0L, 3_601_000L)).isEqualTo("Sin datos")
     }
 
     @Test
@@ -78,6 +98,40 @@ class WidgetUiStateTest {
         assertThat(state.errorMessage).isEqualTo("Session expired (408)")
         assertThat(state.degraded).isTrue()
         assertThat(state.highContrast).isTrue()
+    }
+
+    @Test
+    fun staleWideWidgetKeepsStopAndLineDetailsButHidesExpiredArrivalTime() {
+        val lastSuccess = 1_000_000L
+        val now = lastSuccess + 16 * ArrivalFreshness.MINUTE_MILLIS
+        val state = WidgetUiState(
+            arrivals = listOf(
+                StopArrivals(
+                    Stop("A911", "Av. Duarte Quirós 1717–1728"),
+                    listOf(
+                        Arrival(
+                            stopCode = "A911",
+                            lineId = "42",
+                            lineName = "42",
+                            routeDescription = "Parque Sarmiento",
+                            etaMinutes = 4,
+                            etaText = "4 min"
+                        )
+                    )
+                )
+            ),
+            lastUpdatedEpochMillis = lastSuccess,
+            refreshIntervalMinutes = 15
+        )
+
+        val displayed = state.prioritizedArrivals(maxRows = 4, maxStops = 2)
+        val arrival = displayed.single().arrivals.single()
+
+        assertThat(displayed.single().stop.name).isEqualTo("Av. Duarte Quirós 1717–1728")
+        assertThat(arrival.lineName).isEqualTo("42")
+        assertThat(arrival.routeDescription).isEqualTo("Parque Sarmiento")
+        assertThat(ArrivalFreshness.etaLabel(arrival, lastSuccess, now, 15))
+            .isEqualTo("Sin horario estimado")
     }
 
     private fun stopGroup(code: String, vararg eta: Int) = StopArrivals(

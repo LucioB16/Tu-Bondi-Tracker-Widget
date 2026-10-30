@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.Preferences
@@ -27,6 +28,7 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -43,7 +45,10 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider as GlanceColorProvider
 import com.tubondi.widget.domain.ArrivalFreshness
+import com.tubondi.widget.domain.LineColorResolver
+import com.tubondi.widget.domain.RouteDestination
 import com.tubondi.widget.domain.displayName
+import com.tubondi.widget.domain.model.collectAvisos
 import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.StopArrivals
 import com.tubondi.widget.ui.arrivals.ArrivalsActivity
@@ -119,24 +124,44 @@ private fun widgetColors(highContrast: Boolean) = if (highContrast) {
 
 private fun pair(day: Color, night: Color) = ColorProvider(day = day, night = night)
 
-internal fun widgetArrivalRowLimit(compact: Boolean, medium: Boolean, fontScale: Float): Int = when {
+internal fun widgetArrivalRowLimit(
+    compact: Boolean,
+    medium: Boolean,
+    fontScale: Float,
+    hasNotices: Boolean = false
+): Int = when {
     compact -> 1
     medium -> if (fontScale >= 1.2f) 1 else 2
     fontScale >= 1.2f -> 2
+    hasNotices -> 3
     else -> 4
+}
+
+internal fun isCompactWidget(width: Dp, height: Dp): Boolean = width < 220.dp || height < 140.dp
+
+/** A tall widget can use the expanded layout even on phones that cap width below 320 dp. */
+internal fun isMediumWidget(width: Dp, height: Dp): Boolean =
+    !isCompactWidget(width, height) && height < 210.dp
+
+internal fun compactAgeLabel(lastSuccessEpochMillis: Long, nowEpochMillis: Long): String {
+    val minutes = ArrivalFreshness.ageMinutes(lastSuccessEpochMillis, nowEpochMillis) ?: return "Sin datos"
+    if (minutes == 0L) return "hace <1 min"
+    if (minutes < 60L) return "hace $minutes min"
+    return ArrivalFreshness.ageLabel(lastSuccessEpochMillis, nowEpochMillis) ?: "Sin datos"
 }
 
 @Composable
 private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
     val size: DpSize = LocalSize.current
     val fontScale = LocalContext.current.resources.configuration.fontScale
-    val compact = size.width < 220.dp || size.height < 140.dp
-    val medium = !compact && (size.width < 320.dp || size.height < 210.dp)
-    val rowLimit = widgetArrivalRowLimit(compact, medium, fontScale)
-    val groupLimit = if (compact) 1 else 2
+    val compact = isCompactWidget(size.width, size.height)
+    val medium = isMediumWidget(size.width, size.height)
     val now = System.currentTimeMillis()
     val colors = widgetColors(state.highContrast)
-    val stale = ArrivalFreshness.isStale(state.lastUpdatedEpochMillis, now)
+    val stale = ArrivalFreshness.isStale(state.lastUpdatedEpochMillis, now, state.refreshIntervalMinutes)
+    val notices = state.arrivals.collectAvisos()
+    val rowLimit = widgetArrivalRowLimit(compact, medium, fontScale, notices.isNotEmpty())
+    val groupLimit = if (compact) 1 else 2
     val visibleGroups = state.prioritizedArrivals(rowLimit, groupLimit)
 
     Column(
@@ -147,7 +172,7 @@ private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
             .semantics { contentDescription = "Abrir arribos de Tu Bondi" }
             .padding(if (compact) TuBondiSpacing.compact else TuBondiSpacing.standard)
     ) {
-        HeaderRow(state, colors, compact, medium, fontScale, arrivalsIntent)
+        HeaderRow(state, colors, compact, medium, size.width < 320.dp, fontScale, arrivalsIntent, now)
         if (state.arrivals.isEmpty()) {
             Spacer(GlanceModifier.height(6.dp))
             Text(
@@ -159,6 +184,13 @@ private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
                 style = TextStyle(color = if (state.degraded) colors.warning else colors.muted, fontSize = 13.sp),
                 maxLines = if (compact) 2 else 3
             )
+            if (notices.isNotEmpty()) {
+                Text(
+                    text = if (compact) "${notices.size} aviso${if (notices.size == 1) "" else "s"}" else "Avisos · Tocá para ver",
+                    style = TextStyle(color = colors.muted, fontSize = 11.sp),
+                    maxLines = 1
+                )
+            }
             return@Column
         }
 
@@ -175,7 +207,7 @@ private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
         }
         if (stale) {
             Text(
-                text = "Datos antiguos · ETA ocultas",
+                text = "Datos desactualizados · ${ArrivalFreshness.ageLabel(state.lastUpdatedEpochMillis, now).orEmpty()}",
                 modifier = GlanceModifier
                     .fillMaxWidth()
                     .background(colors.warningSurface)
@@ -183,7 +215,6 @@ private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
                 style = TextStyle(color = colors.warning, fontWeight = FontWeight.Bold, fontSize = 13.sp),
                 maxLines = 1
             )
-            return@Column
         }
 
         if (visibleGroups.isEmpty()) {
@@ -193,12 +224,20 @@ private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
                 style = TextStyle(color = colors.muted, fontSize = 13.sp),
                 maxLines = 2
             )
-            if (state.arrivals.any(::hasNotice) && !compact) {
-                Text(
-                    text = "Avisos disponibles · ver en Arribos",
-                    style = TextStyle(color = colors.warning, fontSize = 12.sp),
-                    maxLines = 1
-                )
+            if (notices.isNotEmpty()) {
+                when {
+                    compact -> Text(
+                        text = if (notices.size == 1) "1 aviso" else "${notices.size} avisos",
+                        style = TextStyle(color = colors.muted, fontSize = 11.sp),
+                        maxLines = 1
+                    )
+                    medium -> Text(
+                        text = "Avisos · Tocá para ver",
+                        style = TextStyle(color = colors.warning, fontSize = 12.sp),
+                        maxLines = 1
+                    )
+                    else -> WideNotice(notices, stale, colors, fontScale)
+                }
             }
             return@Column
         }
@@ -213,17 +252,68 @@ private fun WidgetContent(state: WidgetUiState, arrivalsIntent: Intent) {
                         lastUpdated = state.lastUpdatedEpochMillis,
                         now = now,
                         colors = colors,
-                        compact = compact
+                        compact = compact,
+                        refreshIntervalMinutes = state.refreshIntervalMinutes
                     )
                 }
             }
         }
-        if (state.arrivals.any(::hasNotice) && !stale && !compact && !medium) {
-            Spacer(GlanceModifier.height(3.dp))
-            Text(
-                text = "⚠ Aviso en Arribos",
+        when {
+            notices.isEmpty() -> Unit
+            compact -> Text(
+                text = if (notices.size == 1) "1 aviso" else "${notices.size} avisos",
+                modifier = GlanceModifier.semantics {
+                    contentDescription = "${notices.size} avisos. Abrir arribos para ver el detalle"
+                },
+                style = TextStyle(color = colors.muted, fontSize = 11.sp),
+                maxLines = 1
+            )
+            medium -> Text(
+                text = "Avisos · Tocá para ver",
+                modifier = GlanceModifier.semantics { contentDescription = "Avisos disponibles. Abrir arribos" },
                 style = TextStyle(color = colors.warning, fontSize = 12.sp),
                 maxLines = 1
+            )
+            else -> {
+                Spacer(GlanceModifier.height(3.dp))
+                WideNotice(notices, stale, colors, fontScale)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WideNotice(notices: List<String>, stale: Boolean, colors: WidgetColors, fontScale: Float) {
+    if (notices.isEmpty()) return
+    Column(
+        modifier = GlanceModifier.fillMaxWidth()
+            .background(colors.warningSurface)
+            .padding(horizontal = TuBondiSpacing.compact, vertical = 4.dp)
+            .semantics {
+                contentDescription = "Aviso: ${notices.first()}. Abrir arribos para leerlo completo"
+            }
+    ) {
+        Text(
+            text = when {
+                stale -> "Aviso anterior"
+                fontScale >= 1.2f -> if (notices.size == 1) "1 aviso" else "${notices.size} avisos"
+                notices.size > 1 -> "Aviso 1 de ${notices.size}"
+                else -> "Aviso"
+            },
+            style = TextStyle(color = colors.warning, fontWeight = FontWeight.Bold, fontSize = 12.sp),
+            maxLines = 1
+        )
+        if (fontScale >= 1.2f || notices.first().length > 96) {
+            Text(
+                text = if (fontScale >= 1.2f) "Tocá para leer el aviso completo" else "Aviso extenso · Tocá para leer",
+                style = TextStyle(color = colors.muted, fontSize = 12.sp),
+                maxLines = 1
+            )
+        } else {
+            Text(
+                text = notices.first(),
+                style = TextStyle(color = colors.warning, fontSize = 12.sp),
+                maxLines = 2
             )
         }
     }
@@ -235,8 +325,10 @@ private fun HeaderRow(
     colors: WidgetColors,
     compact: Boolean,
     medium: Boolean,
+    narrow: Boolean,
     fontScale: Float,
-    arrivalsIntent: Intent
+    arrivalsIntent: Intent,
+    nowEpochMillis: Long
 ) {
     val context = LocalContext.current
     Row(
@@ -245,7 +337,7 @@ private fun HeaderRow(
     ) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text(
-                text = if (fontScale >= 1.2f) {
+                text = if (fontScale >= 1.2f || narrow) {
                     "Próximos arribos"
                 } else {
                     context.getString(com.tubondi.widget.R.string.widget_header)
@@ -258,7 +350,7 @@ private fun HeaderRow(
                     color = colors.text,
                     fontSize = when {
                         compact -> 14.sp
-                        medium -> 15.sp
+                        medium || narrow -> 15.sp
                         else -> 16.sp
                     }
                 ),
@@ -267,15 +359,16 @@ private fun HeaderRow(
             val lastUpdated = state.lastUpdatedEpochMillis
             if (lastUpdated > 0L) {
                 val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastUpdated))
-                val age = ArrivalFreshness.ageLabel(lastUpdated, System.currentTimeMillis()).orEmpty()
+                val age = if (compact || narrow) compactAgeLabel(lastUpdated, nowEpochMillis)
+                    else ArrivalFreshness.ageLabel(lastUpdated, nowEpochMillis).orEmpty()
                 Text(
-                    text = if (fontScale >= 1.2f) "$time · $age" else "Actualizado $time · $age",
+                    text = if (compact || narrow || fontScale >= 1.2f) "$time · $age" else "Actualizado $time · $age",
                     style = TextStyle(color = colors.muted, fontSize = 12.sp),
                     maxLines = 1
                 )
             } else {
                 Text(
-                    text = if (fontScale >= 1.2f) "Sin datos todavía" else "Esperando el primer dato",
+                    text = if (fontScale >= 1.2f || narrow) "Sin datos todavía" else "Esperando el primer dato",
                     style = TextStyle(color = colors.muted, fontSize = 12.sp),
                     maxLines = 1
                 )
@@ -322,24 +415,35 @@ private fun ArrivalRow(
     lastUpdated: Long,
     now: Long,
     colors: WidgetColors,
-    compact: Boolean
+    compact: Boolean,
+    refreshIntervalMinutes: Int
 ) {
-    val eta = ArrivalFreshness.etaLabel(arrival, lastUpdated, now)
+    val eta = ArrivalFreshness.etaLabel(arrival, lastUpdated, now, refreshIntervalMinutes)
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
             .padding(vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val lineColor = LineColorResolver.normalize(arrival.color)?.let { normalized ->
+            runCatching { Color(android.graphics.Color.parseColor(normalized)) }.getOrNull()
+        }
+        Box(
+            modifier = GlanceModifier
+                .width(4.dp)
+                .height(28.dp)
+                .background(lineColor?.let(::GlanceColorProvider) ?: colors.muted)
+        ) {}
+        Spacer(GlanceModifier.width(6.dp))
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text(
                 text = arrival.lineName,
                 style = TextStyle(fontWeight = FontWeight.Bold, color = colors.text, fontSize = 14.sp),
                 maxLines = 1
             )
-            arrival.routeDescription?.takeIf { it.isNotBlank() }?.let { destination ->
+            RouteDestination.fromRouteDescription(arrival.routeDescription)?.let { destination ->
                 Text(
-                    text = destination,
+                    text = if (compact) destination else "Hacia $destination",
                     style = TextStyle(color = colors.muted, fontSize = 12.sp),
                     maxLines = 1
                 )
@@ -360,6 +464,3 @@ private fun ArrivalRow(
         )
     }
 }
-
-private fun hasNotice(group: StopArrivals): Boolean =
-    !group.backendMessage.isNullOrBlank() || group.arrivals.any { !it.notification.isNullOrBlank() }

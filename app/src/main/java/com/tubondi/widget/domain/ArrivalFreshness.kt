@@ -2,7 +2,7 @@ package com.tubondi.widget.domain
 
 import com.tubondi.widget.domain.model.Arrival
 
-/** Short-horizon arrival estimates are hidden after this age, regardless of polling interval. */
+/** Arrival estimates are hidden when the configured refresh interval has elapsed since success. */
 object ArrivalFreshness {
     const val MAX_ETA_AGE_MINUTES = 15L
     const val MINUTE_MILLIS = 60_000L
@@ -15,8 +15,17 @@ object ArrivalFreshness {
     fun ageMinutes(lastSuccessEpochMillis: Long, nowEpochMillis: Long): Long? =
         ageMillis(lastSuccessEpochMillis, nowEpochMillis)?.div(MINUTE_MILLIS)
 
-    fun isStale(lastSuccessEpochMillis: Long, nowEpochMillis: Long): Boolean =
-        ageMillis(lastSuccessEpochMillis, nowEpochMillis)?.let { it >= MAX_ETA_AGE_MINUTES * MINUTE_MILLIS } ?: true
+    fun isStale(
+        lastSuccessEpochMillis: Long,
+        nowEpochMillis: Long,
+        refreshIntervalMinutes: Int = MAX_ETA_AGE_MINUTES.toInt()
+    ): Boolean {
+        val freshnessWindow = refreshIntervalMinutes.coerceIn(
+            MAX_ETA_AGE_MINUTES.toInt(),
+            60
+        ) * MINUTE_MILLIS
+        return ageMillis(lastSuccessEpochMillis, nowEpochMillis)?.let { it >= freshnessWindow } ?: true
+    }
 
     fun ageLabel(lastSuccessEpochMillis: Long, nowEpochMillis: Long): String? {
         val minutes = ageMinutes(lastSuccessEpochMillis, nowEpochMillis) ?: return null
@@ -38,9 +47,14 @@ object ArrivalFreshness {
      * ETA values are measured from the successful response time. Count them down
      * while fresh; once the prediction time has passed, don't imply it is live.
      */
-    fun etaLabel(arrival: Arrival, lastSuccessEpochMillis: Long, nowEpochMillis: Long): String {
-        if (isStale(lastSuccessEpochMillis, nowEpochMillis)) return "Horario oculto"
-        val elapsed = ageMinutes(lastSuccessEpochMillis, nowEpochMillis) ?: return "Horario oculto"
+    fun etaLabel(
+        arrival: Arrival,
+        lastSuccessEpochMillis: Long,
+        nowEpochMillis: Long,
+        refreshIntervalMinutes: Int = MAX_ETA_AGE_MINUTES.toInt()
+    ): String {
+        if (isStale(lastSuccessEpochMillis, nowEpochMillis, refreshIntervalMinutes)) return "Sin horario estimado"
+        val elapsed = ageMinutes(lastSuccessEpochMillis, nowEpochMillis) ?: return "Sin horario estimado"
         val etaMinutes = arrival.etaMinutes ?: return arrival.etaText.ifBlank { "Sin horario" }
         val remaining = etaMinutes - elapsed
         return when {

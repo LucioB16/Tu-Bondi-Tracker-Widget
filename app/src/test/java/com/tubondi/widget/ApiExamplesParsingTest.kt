@@ -53,6 +53,10 @@ class ApiExamplesParsingTest {
         val first = payload.paradas.first()
         assertThat(first.codigo).isNotEmpty()
         assertThat(first.paradaNombre).isNotEmpty()
+        assertThat(first.lineId).isEqualTo("42")
+        assertThat(first.clientId).isEqualTo(411)
+        assertThat(first.lat?.toString()?.trim('"')?.toDoubleOrNull()).isWithin(0.000001).of(-31.411505)
+        assertThat(first.lon?.toString()?.trim('"')?.toDoubleOrNull()).isWithin(0.000001).of(-64.255723)
     }
 
     @Test
