@@ -57,11 +57,21 @@ class WidgetPreferencesTest {
     fun deletingOneWidgetConfigurationPreservesTheOther() = runTest {
         val first = WidgetConfiguration(
             appWidgetId = 41,
-            selections = listOf(StopSelection(Stop(code = "AA50", name = "Primera")))
+            selections = listOf(
+                StopSelection(
+                    Stop(code = "AA50", name = "Parada compartida", lines = listOf(Line("10", "10", clientId = 411))),
+                    selectedLines = listOf("411:10")
+                )
+            )
         )
         val second = WidgetConfiguration(
             appWidgetId = 42,
-            selections = listOf(StopSelection(Stop(code = "BB17", name = "Segunda"))),
+            selections = listOf(
+                StopSelection(
+                    Stop(code = "AA50", name = "Parada compartida", lines = listOf(Line("10", "10", clientId = 408))),
+                    selectedLines = listOf("408:10")
+                )
+            ),
             refreshIntervalMinutes = 30,
             highContrast = true
         )
@@ -72,5 +82,7 @@ class WidgetPreferencesTest {
 
         assertThat(prefs.readConfiguration(first.appWidgetId)).isNull()
         assertThat(prefs.readConfiguration(second.appWidgetId)).isEqualTo(second)
+        assertThat(prefs.readConfiguration(second.appWidgetId)?.selections?.single()?.selectedLines)
+            .containsExactly("408:10")
     }
 }

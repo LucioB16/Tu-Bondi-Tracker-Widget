@@ -45,6 +45,9 @@ class CatalogRepository @Inject constructor(
     @Volatile
     private var cached: StopCatalog? = null
 
+    @Volatile
+    private var cachedSearchIndex: List<SearchEntry>? = null
+
     /** Catálogo completo (parseado una vez por proceso; asset siempre presente). */
     fun load(): StopCatalog = cached ?: run {
         val parsed = json.decodeFromString(
@@ -63,10 +66,11 @@ class CatalogRepository @Inject constructor(
         if (query.isBlank()) return emptyList()
         val q = normalizeForSearch(query)
         if (q.isBlank()) return emptyList()
-        return load().stops.filter {
-            normalizeForSearch(it.name).contains(q) ||
-                normalizeForSearch(it.hood.orEmpty()).contains(q)
-        }.take(limit)
+        return searchIndex().asSequence()
+            .filter { it.normalizedName.contains(q) || it.normalizedHood.contains(q) }
+            .take(limit)
+            .map(SearchEntry::stop)
+            .toList()
     }
 
     fun hubs(): List<String> = load().hubs
@@ -98,6 +102,22 @@ class CatalogRepository @Inject constructor(
             lines = stop.lines.ifEmpty { catalog.lines }
         )
     }
+
+    private fun searchIndex(): List<SearchEntry> = cachedSearchIndex ?: synchronized(this) {
+        cachedSearchIndex ?: load().stops.map { stop ->
+            SearchEntry(
+                stop = stop,
+                normalizedName = normalizeForSearch(stop.name),
+                normalizedHood = normalizeForSearch(stop.hood.orEmpty())
+            )
+        }.also { cachedSearchIndex = it }
+    }
+
+    private data class SearchEntry(
+        val stop: CatalogStop,
+        val normalizedName: String,
+        val normalizedHood: String
+    )
 
     companion object {
         const val CATALOG_ASSET = "tubondi-catalogo.json"

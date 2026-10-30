@@ -65,7 +65,8 @@ class RefreshWorker @AssistedInject constructor(
                 arrivals = arrivals,
                 lastUpdatedEpochMillis = System.currentTimeMillis(),
                 errorMessage = null,
-                highContrast = config.highContrast
+                highContrast = config.highContrast,
+                refreshIntervalMinutes = config.refreshIntervalMinutes
             )
             WidgetStateStorage.writeState(applicationContext, glanceId, state)
             TransitAppWidget().updateAll(applicationContext)

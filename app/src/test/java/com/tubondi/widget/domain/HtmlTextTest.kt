@@ -46,4 +46,23 @@ class HtmlTextTest {
 
         assertThat(avisos).containsExactly("Desvío por obras", "Parada Anulada").inOrder()
     }
+
+    @Test
+    fun avisosReplaceKnownStopCodesWithDescriptiveNames() {
+        val stop = Stop("A911", "Duarte Quirós 1717–1728")
+        val avisos = listOf(
+            StopArrivals(
+                stop = stop,
+                arrivals = listOf(Arrival(notification = "Desvío en A911 para la línea 42")),
+                backendMessage = "La parada A911 está cerrada"
+            )
+        ).collectAvisos()
+
+        assertThat(avisos).containsExactly(
+            "La parada Duarte Quirós 1717–1728 está cerrada",
+            "Desvío en Duarte Quirós 1717–1728 para la línea 42"
+        ).inOrder()
+        assertThat(avisos.joinToString()).doesNotContain("A911")
+        assertThat(avisos.joinToString()).contains("42")
+    }
 }

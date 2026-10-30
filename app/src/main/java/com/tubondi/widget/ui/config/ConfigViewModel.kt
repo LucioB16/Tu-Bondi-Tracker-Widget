@@ -8,6 +8,7 @@ import com.tubondi.widget.data.catalog.CatalogStop
 import com.tubondi.widget.data.remote.dto.LineDto
 import com.tubondi.widget.data.remote.dto.LinesRoutesResponseDto
 import com.tubondi.widget.data.repo.TransitRepository
+import com.tubondi.widget.domain.LineColorResolver
 import com.tubondi.widget.domain.friendlyErrorMessage
 import com.tubondi.widget.domain.isDescriptiveStopName
 import com.tubondi.widget.domain.model.Line
@@ -25,6 +26,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 
 /**
@@ -44,6 +50,7 @@ class ConfigViewModel @Inject constructor(
     val state: StateFlow<ConfigUiState> = _state
 
     private val json = Json { ignoreUnknownKeys = true }
+    private var searchJob: Job? = null
 
     fun load(appWidgetId: Int) {
         if (_state.value.initialized) return
@@ -61,13 +68,22 @@ class ConfigViewModel @Inject constructor(
                         appContext.assets.open(LINES_ASSET).bufferedReader().readText()
                     )
                 }
+                val canonicalLineColors = LineColorResolver.canonicalColors(
+                    linesPayload.lineas.map { line ->
+                        Line(id = line.id, name = line.name, color = line.color, clientId = line.cliente)
+                    }
+                )
                 val baseline = (existing ?: WidgetConfiguration(
                     appWidgetId = appWidgetId,
                     selections = emptyList(),
                     conf = confToUse
                 )).copy(
                     selections = existing?.selections.orEmpty().map { selection ->
-                        selection.copy(stop = catalogRepository.resolveStop(selection.stop))
+                        val resolvedStop = catalogRepository.resolveStop(selection.stop)
+                        selection.copy(
+                            stop = resolvedStop,
+                            selectedLines = migrateSelectedLines(resolvedStop, selection.selectedLines)
+                        )
                     },
                     refreshIntervalMinutes = (existing?.refreshIntervalMinutes ?: DEFAULT_REFRESH_MINUTES)
                         .coerceIn(MIN_REFRESH_INTERVAL_MINUTES, MAX_REFRESH_INTERVAL_MINUTES),
@@ -79,13 +95,17 @@ class ConfigViewModel @Inject constructor(
                         loading = false,
                         initialized = true,
                         availableRoutes = linesPayload.lineas.flatMap { line ->
+                            val canonicalColor = line.cliente?.let { clientId ->
+                                canonicalLineColors[com.tubondi.widget.domain.LineKey(clientId, line.id)]
+                            }
                             line.rutas.map { route ->
                                 RouteUiModel(
                                     lineName = line.name,
                                     routeName = route.name.orEmpty(),
                                     routeId = route.routeId.toIntOrNull() ?: route.routeId.hashCode(),
+                                    lineId = line.id,
                                     clientId = line.cliente ?: 0,
-                                    color = line.color
+                                    color = canonicalColor
                                 )
                             }
                         },
@@ -109,21 +129,42 @@ class ConfigViewModel @Inject constructor(
     }
 
     fun search(query: String) {
+        searchJob?.cancel()
         if (STOP_CODE_QUERY.matches(query.trim())) {
             _state.update {
                 it.copy(
                     searchQuery = "",
                     searchResults = emptyList(),
+                    searching = false,
                     error = "Buscá por calle, barrio o nombre."
                 )
             }
             return
         }
-        _state.update { it.copy(searchQuery = query) }
-        viewModelScope.launch {
-            val results = catalogRepository.search(query)
-            _state.update { current ->
-                if (current.searchQuery == query) current.copy(searchResults = results, error = null) else current
+        _state.update {
+            it.copy(searchQuery = query, searchResults = emptyList(), searching = query.isNotBlank(), error = null)
+        }
+        if (query.isBlank()) {
+            _state.update { it.copy(searchResults = emptyList(), searching = false, error = null) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            try {
+                delay(160)
+                val results = withContext(Dispatchers.Default) { catalogRepository.search(query) }
+                _state.update { current ->
+                    if (current.searchQuery == query) {
+                        current.copy(searchResults = results, searching = false, error = null)
+                    } else current
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (ex: Exception) {
+                _state.update { current ->
+                    if (current.searchQuery == query) {
+                        current.copy(searchResults = emptyList(), searching = false, error = friendlyErrorMessage(ex))
+                    } else current
+                }
             }
         }
     }
@@ -156,30 +197,19 @@ class ConfigViewModel @Inject constructor(
         _state.update { it.copy(selectedRoute = route, loadingRoute = true, error = null) }
         viewModelScope.launch {
             try {
-                val stops = repository.fetchStopsForRoute(route.routeId, route.clientId, state.value.conf)
+                val stops = repository.fetchStopsForRoute(
+                    routeId = route.routeId,
+                    clientId = route.clientId,
+                    conf = state.value.conf,
+                    lineId = route.lineId,
+                    lineName = route.lineName,
+                    lineColor = route.color
+                )
                     .distinctBy { it.code }
                 _state.update { current ->
                     val routeStops = stops.map { catalogRepository.resolveStop(it) }
-                    val existingByCode = current.selectedStops.associateBy { it.stop.code }
-                    val candidates = routeStops.map { routeStop ->
-                        val existing = existingByCode[routeStop.code]
-                        if (existing == null) {
-                        routeStop
-                        } else {
-                        routeStop.copy(
-                            lines = (existing.stop.lines + routeStop.lines).distinctBy { it.id },
-                            name = existing.stop.name.ifBlank { routeStop.name },
-                            hood = routeStop.hood ?: existing.stop.hood,
-                            customName = existing.stop.customName
-                            )
-                        }
-                    }
-                val candidatesByCode = candidates.associateBy { it.code }
                     current.copy(
-                    selectedStops = current.selectedStops.map { selected ->
-                        candidatesByCode[selected.stop.code]?.let { selected.copy(stop = it) } ?: selected
-                    },
-                        routeStops = candidates,
+                        routeStops = routeStops,
                         error = null,
                         loadingRoute = false
                     )
@@ -206,7 +236,27 @@ class ConfigViewModel @Inject constructor(
                     selectedStops = state.selectedStops + StopUiModel(stop = candidate, isSelected = true),
                     error = null
                 )
-                state.selectedStops[index].isSelected -> state
+                state.selectedStops[index].isSelected -> {
+                    val selected = state.selectedStops[index]
+                    val mergedStop = selected.stop.copy(
+                        latitude = selected.stop.latitude ?: candidate.latitude,
+                        longitude = selected.stop.longitude ?: candidate.longitude,
+                        lines = (selected.stop.lines + candidate.lines).distinctBy { it.selectionKey },
+                        hood = selected.stop.hood ?: candidate.hood
+                    )
+                    val addedLineKeys = candidate.lines.mapTo(mutableSetOf()) { it.selectionKey }
+                    val selectedLines = if (selected.selectedLines.isEmpty()) {
+                        emptySet()
+                    } else {
+                        selected.selectedLines + addedLineKeys
+                    }
+                    if (mergedStop == selected.stop && selectedLines == selected.selectedLines) state else state.copy(
+                        selectedStops = state.selectedStops.mapIndexed { i, stop ->
+                            if (i == index) stop.copy(stop = mergedStop, selectedLines = selectedLines) else stop
+                        },
+                        error = null
+                    )
+                }
                 else -> state.copy(
                     selectedStops = state.selectedStops.mapIndexed { i, stop ->
                         if (i == index) stop.copy(isSelected = true) else stop
@@ -214,6 +264,40 @@ class ConfigViewModel @Inject constructor(
                     error = null
                 )
             }
+        }
+    }
+
+    /** Applies the current route's map selection to this widget's unsaved draft. */
+    fun applyRouteMapSelection(selectedCodes: Set<String>) {
+        _state.update { current ->
+            val candidates = current.routeStops.associateBy { it.code }
+            if (candidates.isEmpty()) return@update current
+            val selectedByCode = current.selectedStops.associateBy { it.stop.code }
+            val candidateCodes = candidates.keys
+            val updated = current.selectedStops.filterNot { it.stop.code in candidateCodes }.toMutableList()
+            candidates.forEach { (code, candidate) ->
+                val existing = selectedByCode[code]
+                val shouldSelect = code in selectedCodes
+                if (!shouldSelect) {
+                    if (existing != null) updated += existing.copy(isSelected = false)
+                    return@forEach
+                }
+                if (existing == null) {
+                    updated += StopUiModel(stop = candidate, isSelected = true)
+                } else {
+                    val configured = existing.stop
+                    val merged = candidate.copy(
+                        name = configured.name.ifBlank { candidate.name },
+                        latitude = configured.latitude ?: candidate.latitude,
+                        longitude = configured.longitude ?: candidate.longitude,
+                        lines = (configured.lines + candidate.lines).distinctBy { it.selectionKey },
+                        hood = configured.hood ?: candidate.hood,
+                        customName = configured.customName
+                    )
+                    updated += existing.copy(stop = merged, isSelected = true)
+                }
+            }
+            current.copy(selectedStops = updated, error = null)
         }
     }
 
@@ -250,7 +334,7 @@ class ConfigViewModel @Inject constructor(
             st.copy(
                 selectedStops = st.selectedStops.map { stopUi ->
                     if (stopUi.stop.code == stopCode) {
-                        val allLines = stopUi.stop.lines.mapTo(mutableSetOf()) { it.id }
+                        val allLines = stopUi.stop.lines.mapTo(mutableSetOf()) { it.selectionKey }
                         val currentLines = stopUi.selectedLines.ifEmpty { allLines }
                         val selected = if (enabled) currentLines + lineId else currentLines - lineId
                         stopUi.copy(selectedLines = if (selected.isEmpty() || selected == allLines) emptySet() else selected)
@@ -327,6 +411,7 @@ data class ConfigUiState(
     val conf: String = DEFAULT_CONF,
     val searchQuery: String = "",
     val searchResults: List<CatalogStop> = emptyList(),
+    val searching: Boolean = false,
     val hubs: List<CatalogStop> = emptyList(),
     val loading: Boolean = false,
     val loadingRoute: Boolean = false,
@@ -356,15 +441,31 @@ data class RouteUiModel(
     val routeName: String,
     val routeId: Int,
     val clientId: Int,
-    val color: String?
+    val color: String?,
+    val lineId: String = lineName
 )
 
 data class StopUiModel(
     val stop: Stop,
     val isSelected: Boolean = false,
-    val selectedLines: Set<String> = stop.lines.map { it.id }.toSet()
+    val selectedLines: Set<String> = stop.lines.map { it.selectionKey }.toSet()
 ) {
     fun isLineSelected(lineId: String): Boolean = selectedLines.isEmpty() || lineId in selectedLines
 }
 
 private val STOP_CODE_QUERY = Regex("^[A-Z]{1,4}\\d{2,5}$", RegexOption.IGNORE_CASE)
+
+private fun migrateSelectedLines(stop: Stop, selected: List<String>): List<String> {
+    if (selected.isEmpty()) return emptyList()
+    val converted = selected.map { value ->
+        if (':' in value) {
+            stop.lines.singleOrNull { it.selectionKey == value }?.selectionKey
+        } else {
+            stop.lines.filter { it.id == value }
+                .singleOrNull()
+                ?.takeIf { it.clientId != null }
+                ?.selectionKey
+        }
+    }
+    return converted.filterNotNull().takeIf { it.size == selected.size }.orEmpty()
+}

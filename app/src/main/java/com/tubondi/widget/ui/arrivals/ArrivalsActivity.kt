@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,6 +27,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -49,12 +53,16 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
+import com.tubondi.widget.R
 import com.tubondi.widget.domain.ArrivalFreshness
 import com.tubondi.widget.domain.HtmlText
+import com.tubondi.widget.domain.LineColorResolver
 import com.tubondi.widget.domain.displayName
 import com.tubondi.widget.domain.model.Arrival
 import com.tubondi.widget.domain.model.StopArrivals
@@ -119,7 +127,7 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
             now = System.currentTimeMillis()
         }
     }
-    val stale = ArrivalFreshness.isStale(state.lastUpdated, now)
+    val stale = ArrivalFreshness.isStale(state.lastUpdated, now, state.refreshIntervalMinutes)
     val age = ArrivalFreshness.ageLabel(state.lastUpdated, now)
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val notices = remember(state.stops) { state.stops.collectAvisos() }
@@ -134,15 +142,7 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
     ) {
         if (narrowHeader) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Column {
-                    Text(
-                        "Tu Bondi",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text("Arribos por parada", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                TuBondiBrandTitle()
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -168,15 +168,7 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        "Tu Bondi",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text("Arribos por parada", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                TuBondiBrandTitle(Modifier.weight(1f).padding(end = 8.dp))
                 OutlinedButton(onClick = onConfig, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Ajustes")
                 }
@@ -222,7 +214,13 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)
                 ) {
                     items(state.stops, key = { "stop-${it.stop.code}" }) { stop ->
-                        StopArrivalsCard(stop = stop, stale = stale, lastUpdated = state.lastUpdated, now = now)
+                        StopArrivalsCard(
+                            stop = stop,
+                            stale = stale,
+                            lastUpdated = state.lastUpdated,
+                            now = now,
+                            refreshIntervalMinutes = state.refreshIntervalMinutes
+                        )
                     }
                     if (notices.isNotEmpty()) {
                         item(key = "notices") {
@@ -232,7 +230,7 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
                     if (stale) {
                         item(key = "stale-endnote") {
                             Text(
-                                "Las ETA reaparecen después de completar una actualización exitosa.",
+                                "Los horarios volverán a mostrarse después de actualizar los datos.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
@@ -241,6 +239,34 @@ fun ArrivalsScreen(state: ArrivalsUiState, onRefresh: () -> Unit, onConfig: () -
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TuBondiBrandTitle(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = null,
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .padding(4.dp)
+        )
+        Column {
+            Text(
+                "Tu Bondi",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text("Arribos por parada", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -274,9 +300,9 @@ private fun FreshnessCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = when {
-                        lastUpdated == 0L -> "Todavía no hay una actualización correcta"
+                        lastUpdated == 0L -> "Sin datos todavía"
                         stale -> "Datos desactualizados"
-                        else -> "Última actualización correcta"
+                        else -> "Actualizado"
                     },
                     modifier = Modifier.weight(1f),
                     color = foreground,
@@ -290,22 +316,20 @@ private fun FreshnessCard(
             }
             if (stale && lastUpdated > 0L) {
                 Text(
-                    "Ocultamos los horarios porque podrían no coincidir con el servicio actual.",
+                    "No mostramos horarios hasta recibir datos nuevos.",
                     color = foreground,
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
             if (error != null) {
                 Text(
-                    if (lastUpdated > 0L) "No se pudo actualizar: $error. Conservamos el último dato válido."
+                    if (lastUpdated > 0L) "No se pudo actualizar. Se conservan los últimos datos."
                     else error,
                     color = if (lastUpdated == 0L) foreground else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
-            if (loading && lastUpdated > 0L) {
-                Text("Actualizando; la hora corresponde al último éxito.", color = foreground, style = MaterialTheme.typography.bodySmall)
-            }
+            if (loading && lastUpdated > 0L) Text("Actualizando…", color = foreground, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -330,7 +354,7 @@ private fun EmptyArrivals(onConfig: () -> Unit, onRefresh: () -> Unit, error: St
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    if (error == null) "Agregá lugares para ver sus colectivos." else "Revisá la conexión e intentá de nuevo.",
+                    if (error == null) "Agregá una parada para ver sus colectivos." else "Revisá la conexión e intentá de nuevo.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(14.dp))
@@ -347,7 +371,13 @@ private fun EmptyArrivals(onConfig: () -> Unit, onRefresh: () -> Unit, error: St
 }
 
 @Composable
-private fun StopArrivalsCard(stop: StopArrivals, stale: Boolean, lastUpdated: Long, now: Long) {
+private fun StopArrivalsCard(
+    stop: StopArrivals,
+    stale: Boolean,
+    lastUpdated: Long,
+    now: Long,
+    refreshIntervalMinutes: Int
+) {
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(TuBondiSpacing.largeCardRadius)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Column {
@@ -361,7 +391,7 @@ private fun StopArrivalsCard(stop: StopArrivals, stale: Boolean, lastUpdated: Lo
             } else {
                 stop.arrivals.forEachIndexed { index, arrival ->
                     if (index > 0) HorizontalDivider()
-                    ArrivalRow(arrival, stale, lastUpdated, now)
+                    ArrivalRow(arrival, stale, lastUpdated, now, refreshIntervalMinutes)
                 }
             }
         }
@@ -369,8 +399,19 @@ private fun StopArrivalsCard(stop: StopArrivals, stale: Boolean, lastUpdated: Lo
 }
 
 @Composable
-private fun ArrivalRow(arrival: Arrival, stale: Boolean, lastUpdated: Long, now: Long) {
-    val eta = if (stale) "Horario oculto" else ArrivalFreshness.etaLabel(arrival, lastUpdated, now)
+private fun ArrivalRow(
+    arrival: Arrival,
+    stale: Boolean,
+    lastUpdated: Long,
+    now: Long,
+    refreshIntervalMinutes: Int
+) {
+    val eta = if (stale) "Sin horario estimado" else ArrivalFreshness.etaLabel(
+        arrival,
+        lastUpdated,
+        now,
+        refreshIntervalMinutes
+    )
     val etaSurface = when {
         stale || eta == "Estimación vencida" -> MaterialTheme.colorScheme.tertiaryContainer
         arrival.etaMinutes != null && arrival.etaMinutes <= 5 -> MaterialTheme.colorScheme.secondaryContainer
@@ -386,7 +427,14 @@ private fun ArrivalRow(arrival: Arrival, stale: Boolean, lastUpdated: Long, now:
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("Línea ${arrival.lineName}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier
+                        .size(width = 4.dp, height = 22.dp)
+                        .background(arrival.color.toComposeColor() ?: MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp))
+                )
+                Text("Línea ${arrival.lineName}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            }
             arrival.routeDescription?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
@@ -418,6 +466,10 @@ private fun ArrivalRow(arrival: Arrival, stale: Boolean, lastUpdated: Long, now:
             )
         }
     }
+}
+
+private fun String?.toComposeColor(): Color? = LineColorResolver.normalize(this)?.let { normalized ->
+    runCatching { Color(android.graphics.Color.parseColor(normalized)) }.getOrNull()
 }
 
 @Composable

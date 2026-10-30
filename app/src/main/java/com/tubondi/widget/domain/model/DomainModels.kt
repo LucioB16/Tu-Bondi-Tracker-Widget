@@ -1,5 +1,6 @@
 package com.tubondi.widget.domain.model
 
+import com.tubondi.widget.domain.displayName
 import kotlinx.serialization.Serializable
 
 const val MIN_REFRESH_INTERVAL_MINUTES = 15
@@ -13,8 +14,12 @@ data class Line(
     val id: String,
     val name: String,
     val color: String? = null,
-    val operator: String? = null
-)
+    val operator: String? = null,
+    val clientId: Int? = null
+) {
+    /** API identity; the visible line name is never an identifier. */
+    val selectionKey: String get() = clientId?.let { "$it:$id" } ?: id
+}
 
 /**
  * Representa una parada disponible.
@@ -60,12 +65,13 @@ data class Arrival(
     val vehicleId: String? = null,
     val operator: String? = null,
     val color: String? = null,
+    val clientId: Int? = null,
     val notification: String? = null
 )
 
 /**
  * Configuración de selección por parada.
- * selectedLines usa los line_id REALES de la API (strings); vacío = todas (sin modo "ninguna").
+ * selectedLines usa claves compuestas cliente:line_id; vacío = todas.
  */
 @Serializable
 data class StopSelection(
@@ -102,10 +108,20 @@ data class StopArrivals(
  * backendMessage por parada + notificacion por arribo, limpiados de
  * entidades HTML y sin duplicados.
  */
-fun List<StopArrivals>.collectAvisos(): List<String> =
-    flatMap { stop ->
-        listOfNotNull(stop.backendMessage?.takeIf { it.isNotBlank() }) +
-            stop.arrivals.mapNotNull { it.notification?.takeIf { n -> n.isNotBlank() } }
+fun List<StopArrivals>.collectAvisos(): List<String> {
+    val labelsByCode = associate { it.stop.code to it.stop.displayName() }
+    return flatMap { stopArrivals ->
+        listOfNotNull(stopArrivals.backendMessage?.takeIf { it.isNotBlank() }) +
+            stopArrivals.arrivals.mapNotNull { it.notification?.takeIf(String::isNotBlank) }
     }.map { com.tubondi.widget.domain.HtmlText.stripEntities(it) }
+        .map { message ->
+            labelsByCode.entries.fold(message) { text, (code, displayName) ->
+                if (code.isBlank()) text else Regex(
+                    "(?<![A-Za-z0-9])${Regex.escape(code)}(?![A-Za-z0-9])",
+                    RegexOption.IGNORE_CASE
+                ).replace(text, displayName)
+            }
+        }
         .filter { it.isNotBlank() }
         .distinct()
+}

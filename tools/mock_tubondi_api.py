@@ -12,6 +12,7 @@ import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
@@ -108,6 +109,13 @@ class Handler(BaseHTTPRequestHandler):
                         "cliente": 1,
                         "rutas": [{"ruta_id": "40", "ruta_nombre": "Nueva Córdoba · prueba local"}],
                     },
+                    {
+                        "linea_id": "42",
+                        "linea_nombre": "42",
+                        "color": "#ff9500",
+                        "cliente": 411,
+                        "rutas": [{"ruta_id": "98", "ruta_nombre": "Patricios · datos de fixture"}],
+                    },
                 ],
                 "grupos": [],
                 "clientes": [],
@@ -129,6 +137,17 @@ class Handler(BaseHTTPRequestHandler):
                         "lineas": [{"linea_id": "10", "linea_nombre": "10"}],
                     },
                 ]
+            elif route == "98":
+                # Real-shaped route selection fixture: names and coordinates
+                # are the checked-in API snapshot, not invented locations.
+                fixture_path = Path(__file__).resolve().parents[1] / "app/src/main/assets/api-examples/03-route_selection.json"
+                fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+                self._send(
+                    200,
+                    json.dumps({"paradas": fixture["paradas"], "notificaciones": []}).encode(),
+                    "application/json",
+                )
+                return
             else:
                 stops = [
                     {
@@ -162,7 +181,8 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "linea": "10",
                         "linea_nombre": "10",
-                        "ruta_descripcion": "Centro · Terminal de Ómnibus · datos de prueba local",
+                        "cliente": 1,
+                        "ruta_descripcion": "Centro A Terminal de Ómnibus",
                         "demora": "4min",
                         "distancia": 0.2,
                         "color": "#0E627C",
@@ -170,7 +190,8 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "linea": "40",
                         "linea_nombre": "40",
-                        "ruta_descripcion": "Ciudad Universitaria · destino largo para validar el ajuste en pantalla",
+                        "cliente": 1,
+                        "ruta_descripcion": "Nueva Córdoba A Ciudad Universitaria",
                         "demora": "12min",
                         "distancia": 1.6,
                         "color": "#146E68",
@@ -178,7 +199,8 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "linea": "50",
                         "linea_nombre": "50",
-                        "ruta_descripcion": "Barrio Jardín · servicio simulado",
+                        "cliente": 1,
+                        "ruta_descripcion": "Barrio Jardín A Parque Sarmiento",
                         "demora": "27min",
                         "distancia": 3.4,
                         "color": "#815019",

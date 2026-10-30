@@ -19,13 +19,17 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -59,8 +63,8 @@ class ConfigViewModelTest {
         viewModel.load(5)
         advanceUntilIdle()
         val route = viewModel.state.value.availableRoutes.first()
-        coEvery { repository.fetchStopsForRoute(route.routeId, route.clientId, any()) } returns listOf(
-            Stop(code = "100", name = "San Juan", lines = listOf(Line("1", "1"), Line("2", "2")))
+        coEvery { repository.fetchStopsForRoute(any(), any(), any(), any(), any(), any()) } returns listOf(
+            Stop(code = "100", name = "San Juan", lines = listOf(Line("1", "1", clientId = 100), Line("2", "2", clientId = 100)))
         )
 
         viewModel.selectRoute(route)
@@ -68,16 +72,41 @@ class ConfigViewModelTest {
         assertThat(viewModel.state.value.selectedStops).isEmpty()
         viewModel.addRouteStop("100")
         viewModel.toggleStop("100", true)
-        viewModel.toggleLine("100", "2", false)
+        viewModel.toggleLine("100", "100:2", false)
 
         val stopUi = viewModel.state.value.selectedStops.first { it.stop.code == "100" }
         assertThat(stopUi.isSelected).isTrue()
-        assertThat(stopUi.selectedLines).containsExactly("1")
+        assertThat(stopUi.selectedLines).containsExactly("100:1")
 
         viewModel.toggleStop("100", false)
         viewModel.toggleStop("100", true)
         assertThat(viewModel.state.value.selectedStops.first { it.stop.code == "100" }.selectedLines)
-            .containsExactly("1")
+            .containsExactly("100:1")
+    }
+
+    @Test
+    fun mapSelectionAddsAndRemovesCurrentRouteStopsInTheDraft() = runTest {
+        viewModel.load(5)
+        advanceUntilIdle()
+        val route = viewModel.state.value.availableRoutes.first()
+        coEvery { repository.fetchStopsForRoute(any(), any(), any(), any(), any(), any()) } returns listOf(
+            Stop(code = "100", name = "San Juan", latitude = -31.4, longitude = -64.2),
+            Stop(code = "101", name = "Colón", latitude = -31.41, longitude = -64.19)
+        )
+        viewModel.selectRoute(route)
+        advanceUntilIdle()
+
+        viewModel.applyRouteMapSelection(setOf("101"))
+
+        val selected = viewModel.state.value.selectedStops.single()
+        assertThat(selected.stop.name).isEqualTo("Colón")
+        assertThat(selected.stop.latitude).isEqualTo(-31.41)
+        assertThat(selected.isSelected).isTrue()
+        assertThat(viewModel.state.value.hasUnsavedChanges).isTrue()
+
+        viewModel.applyRouteMapSelection(emptySet())
+        assertThat(viewModel.state.value.selectedStops.single().isSelected).isFalse()
+        assertThat(viewModel.state.value.hasUnsavedChanges).isFalse()
     }
 
     @Test
@@ -91,8 +120,8 @@ class ConfigViewModelTest {
         assertThat(viewModel.state.value.availableRoutes).hasSize(25)
 
         val lastRoute = viewModel.state.value.availableRoutes.last()
-        coEvery { repository.fetchStopsForRoute(lastRoute.routeId, lastRoute.clientId, any()) } returns listOf(
-            Stop(code = "100", name = "San Juan", lines = listOf(Line("1", "1"), Line("2", "2")))
+        coEvery { repository.fetchStopsForRoute(any(), any(), any(), any(), any(), any()) } returns listOf(
+            Stop(code = "100", name = "San Juan", lines = listOf(Line("1", "1", clientId = 100), Line("2", "2", clientId = 100)))
         )
         viewModel.selectRoute(lastRoute)
         advanceUntilIdle()
@@ -101,7 +130,7 @@ class ConfigViewModelTest {
         viewModel.addRouteStop("100")
         assertThat(viewModel.state.value.selectedStops.single().isSelected).isTrue()
         viewModel.toggleStop("100", true)
-        viewModel.toggleLine("100", "2", false)
+        viewModel.toggleLine("100", "100:2", false)
         viewModel.toggleStop("100", false)
         viewModel.selectRoute(lastRoute)
         advanceUntilIdle()
@@ -111,37 +140,44 @@ class ConfigViewModelTest {
         viewModel.addRouteStop("100")
         val reactivated = viewModel.state.value.selectedStops.single { it.stop.code == "100" }
         assertThat(reactivated.isSelected).isTrue()
-        assertThat(reactivated.selectedLines).containsExactly("1")
+        assertThat(reactivated.selectedLines).containsExactly("100:1")
 
-        viewModel.toggleLine("100", "1", false)
+        viewModel.toggleLine("100", "100:1", false)
         val allLines = viewModel.state.value.selectedStops.single { it.stop.code == "100" }
         assertThat(allLines.selectedLines).isEmpty()
-        assertThat(allLines.isLineSelected("1")).isTrue()
-        assertThat(allLines.isLineSelected("2")).isTrue()
+        assertThat(allLines.isLineSelected("100:1")).isTrue()
+        assertThat(allLines.isLineSelected("100:2")).isTrue()
     }
 
     @Test
-    fun routeSelectionMergesLineMetadataIntoExistingSearchStop() = runTest {
+    fun addingRouteStopEnrichesExistingSearchStopWithoutDuplicatingIt() = runTest {
         viewModel.load(5)
         advanceUntilIdle()
         val route = viewModel.state.value.availableRoutes.first()
         val catalogStop = CatalogStop(code = "AA50", name = "Alto Alberdi", hood = "ALTO ALBERDI")
         every { catalogRepository.toStop(catalogStop) } returns Stop(code = "AA50", name = "Alto Alberdi", hood = "Alto Alberdi")
         viewModel.addCatalogStop(catalogStop)
-        coEvery { repository.fetchStopsForRoute(route.routeId, route.clientId, any()) } returns listOf(
-            Stop(code = "AA50", name = "Alto Alberdi", lines = listOf(Line("1", "1"), Line("2", "2")))
+        val draftBeforeRouteExploration = viewModel.state.value.selectedStops.single()
+        coEvery { repository.fetchStopsForRoute(any(), any(), any(), any(), any(), any()) } returns listOf(
+            Stop(code = "AA50", name = "Alto Alberdi", lines = listOf(Line("1", "1", clientId = 100), Line("2", "2", clientId = 100)))
         )
 
         viewModel.selectRoute(route)
         advanceUntilIdle()
+
+        assertThat(viewModel.state.value.selectedStops.single()).isEqualTo(draftBeforeRouteExploration)
+        assertThat(viewModel.state.value.selectedStops.single().stop.lines).isEmpty()
+        viewModel.addRouteStop("AA50")
 
         val stopUi = viewModel.state.value.selectedStops.single()
         assertThat(stopUi.isSelected).isTrue()
         assertThat(stopUi.stop.name).isEqualTo("Alto Alberdi")
         assertThat(stopUi.stop.hood).isEqualTo("Alto Alberdi")
         assertThat(stopUi.stop.lines.map { it.id }).containsExactly("1", "2")
-        assertThat(stopUi.isLineSelected("1")).isTrue()
-        assertThat(stopUi.isLineSelected("2")).isTrue()
+        assertThat(stopUi.isLineSelected("100:1")).isTrue()
+        assertThat(stopUi.isLineSelected("100:2")).isTrue()
+        assertThat(viewModel.state.value.selectedStops).hasSize(1)
+        assertThat(viewModel.state.value.hasUnsavedChanges).isTrue()
     }
 
     @Test
@@ -151,11 +187,20 @@ class ConfigViewModelTest {
         every { catalogRepository.search("alberdi") } returns listOf(
             CatalogStop(code = "AA50", name = "Parada X", hood = "ALTO ALBERDI")
         )
+        val searchThread = AtomicReference<Thread?>()
+        every { catalogRepository.search("duarte") } answers {
+            searchThread.set(Thread.currentThread())
+            listOf(CatalogStop(code = "A911", name = "Duarte Quirós 1717–1728"))
+        }
         every { catalogRepository.toStop(any()) } returns Stop(code = "AA50", name = "Parada X")
 
         viewModel.search("alberdi")
+        assertThat(viewModel.state.value.searching).isTrue()
+        advanceUntilIdle()
+        withContext(Dispatchers.IO) { delay(50) }
         advanceUntilIdle()
         assertThat(viewModel.state.value.searchResults).hasSize(1)
+        assertThat(viewModel.state.value.searching).isFalse()
 
         viewModel.addCatalogStop(viewModel.state.value.searchResults.first())
 
@@ -168,6 +213,13 @@ class ConfigViewModelTest {
         viewModel.removeStop("AA50")
         viewModel.addCatalogStop(CatalogStop(code = "AA50", name = "Parada X", hood = "ALTO ALBERDI"))
         assertThat(viewModel.state.value.selectedStops.single { it.stop.code == "AA50" }.isSelected).isTrue()
+
+        viewModel.search("duarte")
+        advanceUntilIdle()
+        withContext(Dispatchers.IO) { delay(50) }
+        advanceUntilIdle()
+        assertThat(searchThread.get()).isNotNull()
+        assertThat(searchThread.get()!!.name).startsWith("DefaultDispatcher")
     }
 
     @Test
@@ -181,7 +233,26 @@ class ConfigViewModelTest {
         assertThat(viewModel.state.value.searchResults).isEmpty()
         assertThat(viewModel.state.value.error).isEqualTo("Buscá por calle, barrio o nombre.")
         coVerify(exactly = 1) { repository.fetchLinesPayload(any()) }
-        coVerify(exactly = 0) { repository.fetchStopsForRoute(any(), any(), any()) }
+        coVerify(exactly = 0) { repository.fetchStopsForRoute(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun searchDoesNotShowEmptyResultStateUntilCurrentQueryFinishes() = runTest {
+        viewModel.load(5)
+        advanceUntilIdle()
+        every { catalogRepository.search("sin coincidencias") } returns emptyList()
+
+        viewModel.search("sin coincidencias")
+
+        assertThat(viewModel.state.value.searching).isTrue()
+        assertThat(viewModel.state.value.searchResults).isEmpty()
+        advanceUntilIdle()
+        withContext(Dispatchers.IO) { delay(50) }
+        advanceUntilIdle()
+
+        assertThat(viewModel.state.value.searching).isFalse()
+        assertThat(viewModel.state.value.searchQuery).isEqualTo("sin coincidencias")
+        assertThat(viewModel.state.value.searchResults).isEmpty()
     }
 
     @Test
